@@ -1,0 +1,37 @@
+# 本文件适用于小项目，调用方较少（100个以内）的情况
+# 如果调用方较多，则通过数据库来配置访问权限和接口盐值
+# 签名配置文件 - 存储账号、秘钥、权限和接口盐值
+# 对应文件为config/ApiAuthConfig.java
+apiauth:
+  # 调用方配置
+  apps:
+    - appCode: ios1
+      appName: appUser1
+      secretKey: ${API_AUTH_IOS_SECRET}
+      description: "调用方1"
+      permissions:
+        - "/api/orders/{id}/cancel"
+        - "/api/orders/{id}/pay"
+        - "/api/orders/{id}"
+        - "/api/orders/users/{userId}"
+        - "/api/users/{userId}"
+        - "/api/admin/admin-sign-submit"
+    - appCode: h5
+      appName: appUser2
+      secretKey: ${API_AUTH_H5_SECRET}
+      description: "调用方2"
+      permissions:
+        - "/api/users"
+        - "/api/users/{userId}"
+        - "/api/admin/admin-sign-submit"
+
+  # 接口盐值配置
+  interface-salts:
+    - path: "/api/orders/{id}/cancel"
+      salt: "t3!@$$"
+    - path: "/api/orders/{id}/pay"
+      salt: "t3!@de"
+    - path: "/api/orders/{id}"
+      salt: "ngx#124"
+    - path: "/api/admin/admin-sign-submit"
+      salt: "a6x_T@"

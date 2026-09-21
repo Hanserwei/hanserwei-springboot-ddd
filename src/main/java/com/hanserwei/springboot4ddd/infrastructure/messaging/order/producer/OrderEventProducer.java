@@ -1,0 +1,142 @@
+package com.hanserwei.springboot4ddd.infrastructure.messaging.order.producer;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.hanserwei.springboot4ddd.domain.event.DomainEvent;
+import com.hanserwei.springboot4ddd.domain.event.DomainEventPublisher;
+import com.hanserwei.springboot4ddd.domain.event.order.OrderCancelledEvent;
+import com.hanserwei.springboot4ddd.domain.event.order.OrderCompletedEvent;
+import com.hanserwei.springboot4ddd.domain.event.order.OrderCreatedEvent;
+import com.hanserwei.springboot4ddd.domain.event.order.OrderPaidEvent;
+import com.hanserwei.springboot4ddd.infrastructure.messaging.order.converter.OrderEventMessageMapper;
+import com.hanserwei.springboot4ddd.infrastructure.messaging.order.message.OrderCancelledMessage;
+import com.hanserwei.springboot4ddd.infrastructure.messaging.order.message.OrderCompletedMessage;
+import com.hanserwei.springboot4ddd.infrastructure.messaging.order.message.OrderCreatedMessage;
+import com.hanserwei.springboot4ddd.infrastructure.messaging.order.message.OrderPaidMessage;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.producer.SendResult;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+/**
+ * 订单事件生产者
+ * 负责将订单领域事件发送到 RocketMQ
+ * 支持优雅降级：当MQ不可用时记录日志但不中断业务流程
+ *
+ * @author Hanserwei
+ * @since 1.0.0
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class OrderEventProducer implements DomainEventPublisher {
+
+    private final RocketMQTemplate rocketMQTemplate;
+    private final OrderEventMessageMapper messageMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+
+    @Value("${rocketmq.fallback.enabled:true}")
+    private boolean rocketMqFallbackEnabled;
+
+    /**
+     * RocketMQ Topic
+     */
+    private static final String TOPIC = "order-events";
+
+    /**
+     * 发布单个领域事件
+     *
+     * @param event 领域事件
+     */
+    @Override
+    public void publishEvent(DomainEvent event) {
+        try {
+            Object message = convertToMessage(event);
+            String tag = event.getEventType();
+            String destination = TOPIC + ":" + tag;
+            String messageBody = objectMapper.writeValueAsString(message);
+
+            // 同步发送消息到 RocketMQ
+            SendResult sendResult = rocketMQTemplate.syncSend(destination, messageBody);
+
+            log.info("订单事件已发送到 RocketMQ，eventId={}, eventType={}, topic={}, tag={}, msgId={}",
+                    event.getEventId(), event.getEventType(), TOPIC, tag, sendResult.getMsgId());
+
+        } catch (JsonProcessingException e) {
+            log.error("序列化订单事件消息失败，eventId={}, eventType={}",
+                    event.getEventId(), event.getEventType(), e);
+            throw new RuntimeException("发布订单事件失败: 序列化错误", e);
+        } catch (Exception e) {
+            if (rocketMqFallbackEnabled) {
+                log.error("RocketMQ不可用，订单事件发送失败，系统继续运行，eventId={}, eventType={}, error={}",
+                        event.getEventId(), event.getEventType(), e.getMessage());
+                log.warn("建议检查RocketMQ服务状态，事件将被丢弃但业务流程继续");
+                // 不抛出异常，允许业务继续执行
+            } else {
+                log.error("发送订单事件到 RocketMQ 失败，优雅降级已禁用，eventId={}, eventType={}",
+                        event.getEventId(), event.getEventType(), e);
+                throw new RuntimeException("发布订单事件失败: 消息发送错误", e);
+            }
+        }
+    }
+
+    /**
+     * 批量发布领域事件
+     *
+     * @param events 领域事件列表
+     */
+    @Override
+    public void publishEvents(List<DomainEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return;
+        }
+
+        for (DomainEvent event : events) {
+            try {
+                publishEvent(event);
+            } catch (Exception e) {
+                if (rocketMqFallbackEnabled) {
+                    // 记录错误但不中断批量发送
+                    log.error("批量发送事件时失败，eventId={}, 继续处理下一个事件", event.getEventId(), e);
+                } else {
+                    // 如果优雅降级被禁用，则重新抛出异常
+                    log.error("批量发送事件时失败，优雅降级已禁用，停止处理", e);
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /**
+     * 将领域事件转换为消息对象
+     *
+     * @param event 领域事件
+     * @return 消息对象
+     */
+    private Object convertToMessage(DomainEvent event) {
+        if (event instanceof OrderCreatedEvent) {
+            OrderCreatedMessage message = messageMapper.toMessage((OrderCreatedEvent) event);
+            log.debug("转换订单创建事件为消息，orderNo={}", message.getOrderNo());
+            return message;
+        } else if (event instanceof OrderPaidEvent) {
+            OrderPaidMessage message = messageMapper.toMessage((OrderPaidEvent) event);
+            log.debug("转换订单支付事件为消息，orderNo={}", message.getOrderNo());
+            return message;
+        } else if (event instanceof OrderCancelledEvent) {
+            OrderCancelledMessage message = messageMapper.toMessage((OrderCancelledEvent) event);
+            log.debug("转换订单取消事件为消息，orderNo={}", message.getOrderNo());
+            return message;
+        } else if (event instanceof OrderCompletedEvent) {
+            OrderCompletedMessage message = messageMapper.toMessage((OrderCompletedEvent) event);
+            log.debug("转换订单完成事件为消息，orderNo={}", message.getOrderNo());
+            return message;
+        } else {
+            throw new IllegalArgumentException("不支持的事件类型: " + event.getClass().getName());
+        }
+    }
+}

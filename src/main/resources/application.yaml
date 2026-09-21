@@ -1,0 +1,151 @@
+spring:
+  config:
+    import: "optional:classpath:apiauth-config.yaml"
+  application:
+    name: springboot4ddd
+
+  profiles:
+    active: dev
+
+  autoconfigure:
+    exclude:
+      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+
+  # Spring MVC 配置
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+  # Web 资源配置
+  web:
+    resources:
+      add-mappings: false
+
+  # Spring Boot level
+  logging:
+    level:
+      root: INFO
+      org.springframework: DEBUG
+
+    file:
+      name: logs/app.log
+      path: logs
+
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+  # MySQL - User database (Secondary)
+  user:
+    datasource:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      auto-commit: true
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+      connection-init-sql: SELECT 1
+      pool-name: UserDB-Pool
+    # 优雅降级配置
+    fallback:
+      enabled: true  # 是否启用优雅降级（当MySQL不可用时，系统仍能启动）
+
+  # PostgreSQL - order database (Third)
+  order:
+    datasource:
+      driver-class-name: org.postgresql.Driver
+      minimum-idle: 3
+      maximum-pool-size: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      auto-commit: true
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+      connection-init-sql: SELECT 1
+      pool-name: OrdersDB-Pool
+    # 优雅降级配置
+    fallback:
+      enabled: true  # 是否启用优雅降级（当PostgreSQL不可用时，系统仍能启动）
+
+  # Redis配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3000ms
+
+  # 邮件配置
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: your-email@qq.com  # 修改为实际的QQ邮箱
+    password: your-app-password  # 这里的密码是SMTP授权码，不是登录密码
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+# RocketMQ配置
+rocketmq:
+  name-server: 127.0.0.1:9876
+  producer:
+    group: test-producer
+    send-message-timeout: 10000  # 发送消息超时时间（毫秒）
+    compress-message-body-threshold: 4096  # 消息体压缩阈值（字节）
+  consumer:
+    group: test-consumer  # 默认消费者组
+  # 优雅降级配置
+  fallback:
+    enabled: true  # 是否启用优雅降级（当RocketMQ不可用时，系统仍能启动）
+
+# 订单仓储配置
+order:
+  repository:
+    implementation: mybatis-plus  # 数据访问实现方式：jdbc 或 mybatis-plus
+
+# MyBatis Plus 配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.hanserwei.springboot4ddd.domain.model
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+
+# 签名配置
+sign:
+  # 签名相关配置
+  signature:
+    ttl: 600000  # 签名有效期（毫秒），10分钟
+    default-with-params: false  # 默认不使用参数签名
+  # 是否允许缓存对象
+  allow-cached-body: true
+  # 需要缓存请求体的路径模式，此处为示例
+  cached-body-path-patterns:
+    - /api/orders/**
+    - /api/payment/**
+
+# 服务器配置
+server:
+  port: 8080
+
+# 通知 / 定时任务配置
+notification:
+  admin-email: admin@example.com           # 接收订单超时提醒的管理员邮箱（请按实际部署修改）
+  order-timeout-hours: 2                   # 订单创建后超过该小时数未支付即视为超时
+  order-scan-cron: "0 0 * * * ?"           # 订单扫描定时任务的 cron 表达式
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.hanserwei.springboot4ddd: DEBUG
