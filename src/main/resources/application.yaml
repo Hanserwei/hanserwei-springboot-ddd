@@ -107,20 +107,6 @@ rocketmq:
   fallback:
     enabled: true  # 是否启用优雅降级（当RocketMQ不可用时，系统仍能启动）
 
-# 订单仓储配置
-order:
-  repository:
-    implementation: mybatis-plus  # 数据访问实现方式：jdbc 或 mybatis-plus
-
-# MyBatis Plus 配置
-mybatis-plus:
-  mapper-locations: classpath*:/mapper/**/*.xml
-  type-aliases-package: com.hanserwei.springboot4ddd.domain.model
-  configuration:
-    map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
-
-
 # 签名配置
 sign:
   # 签名相关配置

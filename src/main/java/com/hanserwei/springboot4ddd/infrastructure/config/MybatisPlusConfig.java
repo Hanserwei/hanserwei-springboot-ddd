@@ -1,79 +1,102 @@
 package com.hanserwei.springboot4ddd.infrastructure.config;
 
+import com.baomidou.mybatisplus.annotation.DbType;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
-import com.hanserwei.springboot4ddd.infrastructure.repository.mybatisplus.OrderMybatisPlusMapper;
-import com.hanserwei.springboot4ddd.infrastructure.repository.mybatisplus.OrderMybatisPlusRepositoryImpl;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.baomidou.mybatisplus.spring.MybatisSqlSessionFactoryBean;
+import org.apache.ibatis.logging.slf4j.Slf4jImpl;
 import org.apache.ibatis.session.SqlSessionFactory;
-import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.core.io.support.ResourcePatternResolver;
 
 import javax.sql.DataSource;
 
 /**
- * MyBatis Plus 配置类
- * 手动配置 MyBatis Plus 以兼容 Spring Boot 4.x
+ * MyBatis-Plus 多数据源配置
+ *
+ * <p>由于 {@code MybatisPlusAutoConfiguration} 已在 application.yaml 中排除，
+ * 此处手动装配两套 SqlSessionFactory / SqlSessionTemplate，
+ * 并通过两个 {@code @MapperScan} 把不同包下的 Mapper 绑定到各自数据源：
+ *
+ * <ul>
+ *   <li>订单（PostgreSQL，@Primary）：{@code infrastructure.repository.order}</li>
+ *   <li>用户（MySQL）：{@code infrastructure.repository.user}</li>
+ * </ul>
+ *
+ * <p>分页由 {@link PaginationInnerInterceptor} 按数据库方言处理：
+ * {@code selectPage} 与带 {@code Page} 参数的自定义查询会自动追加 LIMIT/OFFSET 并执行 COUNT。
  *
  * @author Hanserwei
  * @since 1.0.0
  */
 @Configuration
-@MapperScan(basePackages = "com.hanserwei.springboot4ddd.infrastructure.repository.mybatisplus")
+@MapperScan(
+        basePackages = "com.hanserwei.springboot4ddd.infrastructure.repository.order",
+        sqlSessionTemplateRef = "orderSqlSessionTemplate")
+@MapperScan(
+        basePackages = "com.hanserwei.springboot4ddd.infrastructure.repository.user",
+        sqlSessionTemplateRef = "userSqlSessionTemplate")
 public class MybatisPlusConfig {
 
     /**
-     * 配置 SqlSessionFactory
+     * 订单库（PostgreSQL）SqlSessionFactory
      */
     @Bean
-    public SqlSessionFactory sqlSessionFactory(DataSource dataSource, MybatisPlusInterceptor mybatisPlusInterceptor) throws Exception {
-        SqlSessionFactoryBean sqlSessionFactoryBean = new SqlSessionFactoryBean();
-        sqlSessionFactoryBean.setDataSource(dataSource);
-        sqlSessionFactoryBean.setPlugins(mybatisPlusInterceptor);
-
-        // 配置 MyBatis 属性
-        org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.setLogImpl(org.apache.ibatis.logging.slf4j.Slf4jImpl.class);
-        sqlSessionFactoryBean.setConfiguration(configuration);
-
-        // 设置 mapper XML 文件位置
-        ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        sqlSessionFactoryBean.setMapperLocations(resolver.getResources("classpath*:/mapper/**/*.xml"));
-
-        return sqlSessionFactoryBean.getObject();
+    @Primary
+    public SqlSessionFactory orderSqlSessionFactory(
+            @Qualifier("orderDataSource") DataSource dataSource) throws Exception {
+        return buildSqlSessionFactory(dataSource, DbType.POSTGRE_SQL);
     }
 
-    /**
-     * 配置 SqlSessionTemplate
-     */
     @Bean
-    public SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
+    @Primary
+    public SqlSessionTemplate orderSqlSessionTemplate(
+            @Qualifier("orderSqlSessionFactory") SqlSessionFactory sqlSessionFactory) {
         return new SqlSessionTemplate(sqlSessionFactory);
     }
 
     /**
-     * 配置MyBatis Plus拦截器
-     * MyBatis Plus 3.5.x 版本：分页功能已内置，selectPage 会自动处理分页
-     * 无需额外配置分页拦截器，但需要确保 SQL 不包含 LIMIT/OFFSET
+     * 用户库（MySQL）SqlSessionFactory
      */
     @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor() {
-        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // MyBatis Plus 3.5.16 版本的分页已通过 BaseMapper.selectPage() 内置支持
-        // selectPage 会自动根据 Page 对象的 current 和 size 参数生成分页 SQL
-        return interceptor;
+    public SqlSessionFactory userSqlSessionFactory(
+            @Qualifier("userDataSource") DataSource dataSource) throws Exception {
+        return buildSqlSessionFactory(dataSource, DbType.MYSQL);
+    }
+
+    @Bean
+    public SqlSessionTemplate userSqlSessionTemplate(
+            @Qualifier("userSqlSessionFactory") SqlSessionFactory sqlSessionFactory) {
+        return new SqlSessionTemplate(sqlSessionFactory);
     }
 
     /**
-     * 显式注册 OrderMybatisPlusRepositoryImpl bean
-     * 以解决 Spring 无法自动注册 @Mapper 接口依赖的问题
+     * 构建绑定指定数据源的 MyBatis-Plus SqlSessionFactory
      */
-    @Bean
-    public OrderMybatisPlusRepositoryImpl orderMybatisPlusRepositoryImpl(OrderMybatisPlusMapper orderMybatisPlusMapper) {
-        return new OrderMybatisPlusRepositoryImpl(orderMybatisPlusMapper);
+    private SqlSessionFactory buildSqlSessionFactory(DataSource dataSource, DbType dbType) throws Exception {
+        MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
+        factoryBean.setDataSource(dataSource);
+
+        // 分页拦截器：按方言生成 LIMIT/OFFSET，并自动执行 COUNT
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(dbType));
+        factoryBean.setPlugins(interceptor);
+
+        MybatisConfiguration configuration = new MybatisConfiguration();
+        configuration.setMapUnderscoreToCamelCase(true);
+        configuration.setLogImpl(Slf4jImpl.class);
+        factoryBean.setConfiguration(configuration);
+
+        // 预留 XML mapper 位置（当前全部使用注解 SQL）
+        factoryBean.setMapperLocations(new PathMatchingResourcePatternResolver()
+                .getResources("classpath*:/mapper/**/*.xml"));
+
+        return factoryBean.getObject();
     }
 }

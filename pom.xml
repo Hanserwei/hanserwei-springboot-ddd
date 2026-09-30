@@ -8,11 +8,12 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <!--
-            Spring Boot 版本说明：
-            - 4.1.0：Spring Boot 4.1 正式版
-            - 4.0.1：Spring Boot 4.0 稳定版（如需稳定版可改回此版本）
+            Spring Boot 版本说明（更新于 2026-09，均经 Maven Central 核实）：
+            - 4.1.1：当前 4.1.x 最新稳定补丁版（本项目采用）
+            - 4.2.0：尚未发布正式版（仅有 M1/M2 里程碑，勿用于生产）
+            - 4.0.8：4.0.x 维护分支最新稳定版（如需保守可降至此版本）
         -->
-        <version>4.1.0</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
 
@@ -42,33 +43,44 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web -->
+        <!-- Spring Boot Web MVC（Boot 4 中 web 栈的正式 starter，取代旧 starter-web） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
-        <!-- Spring Boot Web (Full web stack for testing) -->
+        <!--
+            Spring Data Commons：仅用于 interfaces 层的 Pageable/Sort 分页参数解析。
+            版本由 Spring Boot BOM 管理；仓储层已统一为 MyBatis-Plus，
+            故不再引入 spring-boot-starter-data-jdbc。
+        -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-commons</artifactId>
         </dependency>
 
-        <!-- Spring Boot Data JDBC -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jdbc</artifactId>
-        </dependency>
-
-        <!-- MyBatis-Plus -->
+        <!--
+            MyBatis-Plus：唯一持久化实现（3.5.17 为当前最新稳定版）。
+            官方已提供 Spring Boot 4 专用 starter，替代此前的 boot3-starter；
+            自动配置已在 application.yaml 中排除，装配逻辑见 MybatisPlusConfig。
+        -->
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>3.5.16</version>
-            <scope>compile</scope>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+            <version>3.5.17</version>
         </dependency>
 
-        <!-- Spring Boot JDBC Starter -->
+        <!--
+            MyBatis-Plus JSqlParser 支持包（版本需与 starter 保持一致）。
+            自 3.5.9 起分页拦截器 PaginationInnerInterceptor 从 extension 拆到此包。
+        -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>3.5.17</version>
+        </dependency>
+
+        <!-- Spring Boot JDBC Starter（JdbcClient / DataSourceTransactionManager） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
@@ -113,11 +125,11 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- RocketMQ Spring Boot Starter -->
+        <!-- RocketMQ Spring Boot Starter（2.3.6 为当前最新稳定版） -->
         <dependency>
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
-            <version>2.3.4</version>
+            <version>2.3.6</version>
         </dependency>
 
         <!-- Apache Commons Codec (SHA-256等) -->
@@ -211,7 +223,8 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.1</version>
+                <!-- 3.16.0 为当前最新稳定版（4.0.0-beta-* 尚未正式发布，勿用） -->
+                <version>3.16.0</version>
                 <configuration>
                     <annotationProcessorPaths>
                         <path>

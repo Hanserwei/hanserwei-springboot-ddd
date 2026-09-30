@@ -111,15 +111,6 @@ public class DataSourceConfig {
     }
 
     /**
-     * PostgreSQL JdbcClient - 订单数据
-     */
-    @Bean(name = "orderJdbcClient")
-    @Primary
-    public JdbcClient orderJdbcClient(@Qualifier("orderDataSource") DataSource dataSource) {
-        return JdbcClient.create(dataSource);
-    }
-
-    /**
      * MySQL事务管理器 - 用户数据
      */
     @Bean(name = "userTransactionManager")

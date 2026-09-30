@@ -1,11 +1,11 @@
 package com.hanserwei.springboot4ddd.interfaces.controller.order;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hanserwei.springboot4ddd.application.command.order.CreateOrderCommand;
 import com.hanserwei.springboot4ddd.application.dto.order.OrderDTO;
+import com.hanserwei.springboot4ddd.application.dto.order.OrderListView;
 import com.hanserwei.springboot4ddd.application.service.order.OrderService;
 import com.hanserwei.springboot4ddd.interfaces.vo.order.CreateOrderRequest;
-import com.hanserwei.springboot4ddd.interfaces.vo.order.OrderListResponse;
-import com.hanserwei.springboot4ddd.interfaces.vo.order.OrderResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -65,7 +65,7 @@ class OrderControllerTest {
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        when(orderService.createOrder(any(CreateOrderRequest.class))).thenReturn(orderDTO);
+        when(orderService.createOrder(any(CreateOrderCommand.class))).thenReturn(orderDTO);
 
         mockMvc.perform(post("/api/orders/create")
                 .contentType("application/json")
@@ -75,7 +75,7 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.data.id").value(1L))
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
 
-        verify(orderService, times(1)).createOrder(any(CreateOrderRequest.class));
+        verify(orderService, times(1)).createOrder(any(CreateOrderCommand.class));
     }
 
     // ==================== READ 测试 ====================
@@ -84,7 +84,7 @@ class OrderControllerTest {
     @DisplayName("获取订单详情 - 成功")
     void testGetOrderDetail_Success() throws Exception {
         long orderId = 1L;
-        OrderResponse response = OrderResponse.builder()
+        OrderDTO response = OrderDTO.builder()
                 .id(orderId)
                 .orderNo("ORD20250227001")
                 .userId(1L)
@@ -109,9 +109,9 @@ class OrderControllerTest {
     @DisplayName("获取用户订单列表 - 成功")
     void testGetUserOrderList_Success() throws Exception {
         long userId = 1L;
-        List<OrderListResponse> orders = Arrays.asList(
-                OrderListResponse.builder()
-                        .order(OrderResponse.builder()
+        List<OrderListView> orders = Arrays.asList(
+                OrderListView.builder()
+                        .order(OrderDTO.builder()
                                 .id(1L)
                                 .orderNo("ORD20250227001")
                                 .userId(userId)
@@ -137,9 +137,9 @@ class OrderControllerTest {
     @Test
     @DisplayName("获取所有订单列表 - 成功")
     void testGetAllOrderList_Success() throws Exception {
-        List<OrderListResponse> orders = Arrays.asList(
-                OrderListResponse.builder()
-                        .order(OrderResponse.builder()
+        List<OrderListView> orders = Arrays.asList(
+                OrderListView.builder()
+                        .order(OrderDTO.builder()
                                 .id(1L)
                                 .orderNo("ORD20250227001")
                                 .userId(1L)
@@ -149,8 +149,8 @@ class OrderControllerTest {
                         .userName("user1")
                         .userPhone("13800138000")
                         .build(),
-                OrderListResponse.builder()
-                        .order(OrderResponse.builder()
+                OrderListView.builder()
+                        .order(OrderDTO.builder()
                                 .id(2L)
                                 .orderNo("ORD20250227002")
                                 .userId(2L)
@@ -164,7 +164,7 @@ class OrderControllerTest {
 
         when(orderService.getAllOrderList()).thenReturn(orders);
 
-        mockMvc.perform(get("/api/orders/list")
+        mockMvc.perform(get("/api/orders")
                 .contentType("application/json"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))

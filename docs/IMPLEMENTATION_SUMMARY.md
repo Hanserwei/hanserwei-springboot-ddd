@@ -1,5 +1,9 @@
 # 实现总结
 
+> **历史文档（2026-09 修订）**：本文描述的“JDBC / MyBatis-Plus 双实现切换机制”
+> 已被移除，仓储层现为 MyBatis-Plus 单一实现，详见
+> `docs/REPOSITORY_IMPLEMENTATION_GUIDE.md`。以下内容仅作历史记录保留。
+
 ## 已完成的工作
 
 已成功实现了基于 MyBatis Plus 的订单数据操作机制，使得可以在 JDBC 和 MyBatis Plus 两种实现方式之间灵活切换。

@@ -1,6 +1,6 @@
 package com.hanserwei.springboot4ddd.infrastructure.cache;
 
-import com.hanserwei.springboot4ddd.interfaces.vo.user.UserResponse;
+import com.hanserwei.springboot4ddd.application.dto.user.UserDTO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -38,8 +38,8 @@ class SimpleCacheServiceTest {
     private static final String TEST_KEY = "user:123";
     private static final Duration TEST_TTL = Duration.ofMinutes(30);
 
-    private UserResponse testUser() {
-        return UserResponse.builder()
+    private UserDTO testUser() {
+        return UserDTO.builder()
                 .id(123L)
                 .name("testuser")
                 .email("test@example.com")
@@ -51,8 +51,8 @@ class SimpleCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(TEST_KEY)).thenReturn(testUser());
 
-        UserResponse result = simpleCacheService.getOrSet(
-                TEST_KEY, UserResponse.class, TEST_TTL, () -> fail("不应调用数据源"));
+        UserDTO result = simpleCacheService.getOrSet(
+                TEST_KEY, TEST_TTL, () -> fail("不应调用数据源"));
 
         assertNotNull(result);
         assertEquals(123L, result.getId());
@@ -61,12 +61,12 @@ class SimpleCacheServiceTest {
 
     @Test
     void getOrSet_缓存未命中_查数据库并回填缓存() {
-        UserResponse user = testUser();
+        UserDTO user = testUser();
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(TEST_KEY)).thenReturn(null);
 
-        UserResponse result = simpleCacheService.getOrSet(
-                TEST_KEY, UserResponse.class, TEST_TTL, () -> user);
+        UserDTO result = simpleCacheService.getOrSet(
+                TEST_KEY, TEST_TTL, () -> user);
 
         assertNotNull(result);
         assertEquals(123L, result.getId());
@@ -78,8 +78,8 @@ class SimpleCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(TEST_KEY)).thenReturn(null);
 
-        UserResponse result = simpleCacheService.getOrSet(
-                TEST_KEY, UserResponse.class, TEST_TTL, () -> null);
+        UserDTO result = simpleCacheService.getOrSet(
+                TEST_KEY, TEST_TTL, () -> null);
 
         assertNull(result);
         verify(valueOperations, never()).set(anyString(), any(), any(Duration.class));
@@ -90,8 +90,8 @@ class SimpleCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(TEST_KEY)).thenThrow(new RuntimeException("Redis连接失败"));
 
-        UserResponse result = simpleCacheService.getOrSet(
-                TEST_KEY, UserResponse.class, TEST_TTL, () -> testUser());
+        UserDTO result = simpleCacheService.getOrSet(
+                TEST_KEY, TEST_TTL, () -> testUser());
 
         assertNotNull(result);
         assertEquals(123L, result.getId());

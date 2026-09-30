@@ -1,10 +1,15 @@
-# Springboot4DDD：基于Spring Boot 4和Java 21的领域驱动设计实践脚手架
+# Springboot4DDD：基于Spring Boot 4和Java 25的领域驱动设计实践脚手架
+
+> **修订说明（2026-09）**：仓储层已统一为 **MyBatis-Plus 单一实现**（订单 PostgreSQL +
+> 用户 MySQL 双数据源手动装配）。本文中涉及 JdbcTemplate / Spring Data JDBC /
+> 多实现切换的章节为历史版本记录，仅供对比学习；当前代码结构以
+> `docs/REPOSITORY_IMPLEMENTATION_GUIDE.md` 为准。
 
 ## 一、项目概述
 
 在现代软件开发中，如何构建一个既符合业务领域特性，又易于维护和扩展的企业级应用，是每个开发者必须面对的挑战。领域驱动设计（Domain-Driven Design，简称DDD）作为一种软件设计方法论，为我们提供了一套系统化的解决方案。
 
-**Springboot4DDD** 是一个完整的、生产就绪的DDD脚手架项目，基于 Spring Boot 4.1（当前 4.1.0-RC1，向下兼容 4.0.x）和 Java 21 构建。它不仅实现了严格的DDD四层架构，还集成了多数据源管理、API安全认证、统一异常处理等企业级特性，可以帮助开发者快速搭建高质量的Java Web应用。
+**Springboot4DDD** 是一个完整的、生产就绪的DDD脚手架项目，基于 Spring Boot 4.1.1 和 Java 25 构建。它不仅实现了严格的DDD四层架构，还集成了多数据源管理、API安全认证、统一异常处理等企业级特性，可以帮助开发者快速搭建高质量的Java Web应用。
 
 ### 1.1 核心特性
 
@@ -12,7 +17,7 @@
 
 - **严格的DDD分层架构**：领域层、应用层、基础设施层、接口层四层清晰分离
 - **多数据源架构**：支持MySQL + PostgreSQL双数据源，演示跨数据库查询
-- **双持久化策略**：同时展示JdbcTemplate和Spring Data JDBC两种数据访问方式
+- **统一持久化策略**：仓储层统一使用 MyBatis-Plus（双数据源双 SqlSessionFactory）
 - **API签名验证**：基于SHA-256的接口安全认证机制
 - **统一响应格式**：标准化的API响应结构
 - **全局异常处理**：优雅的异常捕获和错误响应
@@ -25,14 +30,13 @@
 
 | 技术 | 版本 | 说明 |
 |------|------|------|
-| **Spring Boot** | 4.1.0-RC1 | 已支持 Spring Boot 4.1（GA 预计 2026 年 5 月发布；可回退到 4.0.x 稳定版） |
-| **Java** | 21 | LTS版本，支持现代Java特性 |
+| **Spring Boot** | 4.1.1 | 当前 4.1.x 最新稳定版 |
+| **Java** | 25 | 支持现代Java特性 |
 | **MySQL** | 8.0+ | 用户数据存储 |
 | **PostgreSQL** | 14+ | 订单数据存储 |
 | **Redis** | 6.0+ | 缓存支持（可选） |
-| **RocketMQ** | 4.9+ | 消息队列（可选） |
-| **Spring Data JDBC** | 3.x | 订单数据持久化 |
-| **JdbcTemplate** | - | 用户数据持久化 |
+| **RocketMQ** | Starter 2.3.6 | 消息队列（可选） |
+| **MyBatis-Plus** | 3.5.17（boot4-starter） | 唯一持久化实现 |
 | **Lombok** | - | 简化代码 |
 | **Maven** | 3.8+ | 构建工具 |
 

@@ -1,25 +1,29 @@
 package com.hanserwei.springboot4ddd.infrastructure.repository.user;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hanserwei.springboot4ddd.domain.model.user.User;
 import com.hanserwei.springboot4ddd.domain.page.PageRequest;
 import com.hanserwei.springboot4ddd.domain.page.PageResult;
 import com.hanserwei.springboot4ddd.domain.page.SortOrder;
 import com.hanserwei.springboot4ddd.domain.repository.user.UserRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
- * 用户仓储实现 - MySQL 数据源
+ * 用户仓储实现（MyBatis-Plus）- MySQL 数据源
  *
- * <p>通过 {@link UserDO} + {@link UserConverter} 显式分离持久化与领域模型，
- * 与 {@code OrderJdbcRepositoryImpl} 的处理方式对称。
+ * <p>对外实现领域定义的 {@link UserRepository}（操作 {@code User} + 领域分页类型），
+ * 对内通过 {@link UserMybatisPlusMapper} 读写 {@link UserDO}，
+ * 两种模型的边界转换由 {@link UserConverter} 显式完成。
+ *
+ * <p>注意：Repository 层不管理事务，事务由 Service 层控制。
  *
  * @author Hanserwei
  * @since 1.0.0
@@ -28,159 +32,106 @@ import java.util.Optional;
 @Repository
 public class UserRepositoryImpl implements UserRepository {
 
-    private final JdbcClient jdbcClient;
+    /**
+     * 可排序字段白名单：领域属性名 → users 表列名。
+     * 排序字段来自 HTTP 入参，必须经白名单映射，防止 SQL 注入。
+     */
+    private static final Map<String, String> SORTABLE_COLUMNS = Map.of(
+            "id", "id",
+            "name", "name",
+            "email", "email",
+            "phone", "phone",
+            "address", "address",
+            "createdTime", "created_time",
+            "updatedTime", "updated_time"
+    );
 
-    public UserRepositoryImpl(@Qualifier("userJdbcClient") JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
-    }
+    private final UserMybatisPlusMapper userMapper;
 
-    private static UserDO mapRowToUserDO(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return UserDO.builder()
-                .id(rs.getLong("id"))
-                .name(rs.getString("name"))
-                .email(rs.getString("email"))
-                .phone(rs.getString("phone"))
-                .wechat(getStringOrNull(rs, "wechat"))
-                .address(getStringOrNull(rs, "address"))
-                .createdTime(rs.getTimestamp("created_time").toLocalDateTime())
-                .updatedTime(rs.getTimestamp("updated_time").toLocalDateTime())
-                .build();
-    }
-
-    /** 列不存在或为 null 时返回 null，避免 SQLException: Column 'xxx' not found */
-    private static String getStringOrNull(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
-        try {
-            rs.findColumn(column);
-        } catch (java.sql.SQLException notFound) {
-            return null;
-        }
-        return rs.getString(column);
+    public UserRepositoryImpl(UserMybatisPlusMapper userMapper) {
+        this.userMapper = userMapper;
     }
 
     @Override
     public User save(User user) {
         UserDO userDO = UserConverter.toDO(user);
-        String sql = "INSERT INTO users (name, email, phone, address, created_time, updated_time) " +
-                "VALUES (?, ?, ?, ?, ?, ?)";
-
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime createdTime = userDO.getCreatedTime() != null ? userDO.getCreatedTime() : now;
-        LocalDateTime updatedTime = userDO.getUpdatedTime() != null ? userDO.getUpdatedTime() : now;
-
-        Long generatedId = jdbcClient.sql(sql)
-                .params(userDO.getName(), userDO.getEmail(), userDO.getPhone(),
-                        userDO.getAddress(), Timestamp.valueOf(createdTime), Timestamp.valueOf(updatedTime))
-                .query(Long.class)
-                .single();
-
-        user.markPersisted(generatedId);
+        if (userDO.getCreatedTime() == null) {
+            userDO.setCreatedTime(now);
+        }
+        userDO.setUpdatedTime(now);
+        // IdType.AUTO：insert 后主键自动回填到 userDO.id
+        userMapper.insert(userDO);
+        user.markPersisted(userDO.getId());
         log.info("User saved with id: {}", user.getId());
         return user;
     }
 
     @Override
     public Optional<User> findById(Long id) {
-        String sql = "SELECT * FROM users WHERE id = ?";
-        return jdbcClient.sql(sql)
-                .param(id)
-                .query((rs, rowNum) -> UserConverter.toModel(UserRepositoryImpl.mapRowToUserDO(rs)))
-                .optional();
+        return Optional.ofNullable(userMapper.selectById(id))
+                .map(UserConverter::toModel);
     }
 
     @Override
     public Optional<User> findByName(String name) {
-        String sql = "SELECT * FROM users WHERE name = ?";
-        return jdbcClient.sql(sql)
-                .param(name)
-                .query((rs, rowNum) -> UserConverter.toModel(UserRepositoryImpl.mapRowToUserDO(rs)))
-                .optional();
+        return Optional.ofNullable(userMapper.selectOne(
+                        new LambdaQueryWrapper<UserDO>().eq(UserDO::getName, name)))
+                .map(UserConverter::toModel);
     }
 
     @Override
     public Optional<User> findByEmail(String email) {
-        String sql = "SELECT * FROM users WHERE email = ?";
-        return jdbcClient.sql(sql)
-                .param(email)
-                .query((rs, rowNum) -> UserConverter.toModel(UserRepositoryImpl.mapRowToUserDO(rs)))
-                .optional();
+        return Optional.ofNullable(userMapper.selectOne(
+                        new LambdaQueryWrapper<UserDO>().eq(UserDO::getEmail, email)))
+                .map(UserConverter::toModel);
     }
 
     @Override
     public List<User> findAll() {
-        String sql = "SELECT * FROM users ORDER BY created_time DESC";
-        return jdbcClient.sql(sql)
-                .query((rs, rowNum) -> UserConverter.toModel(UserRepositoryImpl.mapRowToUserDO(rs)))
-                .list();
+        return UserConverter.toModelList(userMapper.selectList(
+                new LambdaQueryWrapper<UserDO>().orderByDesc(UserDO::getCreatedTime)));
     }
 
     @Override
     public PageResult<User> findAll(PageRequest pageRequest) {
-        String countSql = "SELECT COUNT(*) FROM users";
-        Integer total = jdbcClient.sql(countSql)
-                .query(Integer.class)
-                .single();
-        long totalElements = total != null ? total : 0;
+        // 排序列来自 HTTP 入参，必须经白名单映射为列名；
+        // 无显式排序时按创建时间倒序，保证分页结果稳定。
+        // 注：动态列名只能用 QueryWrapper（String 列名），LambdaQueryWrapper 仅支持编译期字段引用。
+        QueryWrapper<UserDO> wrapper = new QueryWrapper<>();
+        if (pageRequest.hasSort()) {
+            applySorts(wrapper, pageRequest.getSorts());
+        } else {
+            wrapper.orderByDesc("created_time");
+        }
 
-        String orderBy = buildOrderByClause(pageRequest.getSorts());
-        String sql = "SELECT * FROM users" + orderBy + " LIMIT ? OFFSET ?";
-
-        List<User> records = jdbcClient.sql(sql)
-                .params(pageRequest.getPageSize(), pageRequest.getOffset())
-                .query((rs, rowNum) -> UserConverter.toModel(UserRepositoryImpl.mapRowToUserDO(rs)))
-                .list();
+        Page<UserDO> page = userMapper.selectPage(
+                new Page<>(pageRequest.getPageNumber(), pageRequest.getPageSize()), wrapper);
 
         return new PageResult<>(
-                records,
-                totalElements,
+                UserConverter.toModelList(page.getRecords()),
+                page.getTotal(),
                 pageRequest.getPageNumber(),
                 pageRequest.getPageSize()
         );
     }
 
-    /**
-     * 根据领域 SortOrder 列表构建 ORDER BY 子句；为空则按 created_time 倒序。
-     */
-    private String buildOrderByClause(List<SortOrder> sorts) {
-        if (sorts == null || sorts.isEmpty()) {
-            return " ORDER BY created_time DESC";
-        }
-
-        StringBuilder sb = new StringBuilder(" ORDER BY ");
-        for (int i = 0; i < sorts.size(); i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            SortOrder order = sorts.get(i);
-            sb.append(order.getProperty()).append(' ').append(order.getDirection().name());
-        }
-        return sb.toString();
-    }
-
     @Override
     public User update(User user) {
         UserDO userDO = UserConverter.toDO(user);
-        String sql = "UPDATE users SET name = ?, email = ?, phone = ?, address = ?, updated_time = ? " +
-                "WHERE id = ?";
+        userDO.setUpdatedTime(LocalDateTime.now());
 
-        int updated = jdbcClient.sql(sql)
-                .params(userDO.getName(), userDO.getEmail(), userDO.getPhone(),
-                        userDO.getAddress(), Timestamp.valueOf(LocalDateTime.now()), userDO.getId())
-                .update();
-
+        int updated = userMapper.updateById(userDO);
         if (updated == 0) {
             throw new IllegalArgumentException("User not found with id: " + userDO.getId());
         }
-
         log.info("User updated with id: {}", user.getId());
         return user;
     }
 
     @Override
     public void deleteById(Long id) {
-        String sql = "DELETE FROM users WHERE id = ?";
-        int deleted = jdbcClient.sql(sql)
-                .param(id)
-                .update();
+        int deleted = userMapper.deleteById(id);
         if (deleted == 0) {
             throw new IllegalArgumentException("User not found with id: " + id);
         }
@@ -189,21 +140,27 @@ public class UserRepositoryImpl implements UserRepository {
 
     @Override
     public boolean existsByName(String name) {
-        String sql = "SELECT COUNT(*) FROM users WHERE name = ?";
-        Integer count = jdbcClient.sql(sql)
-                .param(name)
-                .query(Integer.class)
-                .single();
-        return count != null && count > 0;
+        return userMapper.selectCount(
+                new LambdaQueryWrapper<UserDO>().eq(UserDO::getName, name)) > 0;
     }
 
     @Override
     public boolean existsByEmail(String email) {
-        String sql = "SELECT COUNT(*) FROM users WHERE email = ?";
-        Integer count = jdbcClient.sql(sql)
-                .param(email)
-                .query(Integer.class)
-                .single();
-        return count != null && count > 0;
+        return userMapper.selectCount(
+                new LambdaQueryWrapper<UserDO>().eq(UserDO::getEmail, email)) > 0;
+    }
+
+    /**
+     * 将领域排序条件映射为 SQL 排序（经白名单过滤，未知属性直接忽略）
+     */
+    private void applySorts(QueryWrapper<UserDO> wrapper, List<SortOrder> sorts) {
+        for (SortOrder sort : sorts) {
+            String column = SORTABLE_COLUMNS.get(sort.getProperty());
+            if (column == null) {
+                log.debug("忽略未知排序字段: {}", sort.getProperty());
+                continue;
+            }
+            wrapper.orderBy(true, sort.getDirection() == SortOrder.Direction.ASC, column);
+        }
     }
 }

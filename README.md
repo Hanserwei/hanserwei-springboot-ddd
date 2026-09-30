@@ -24,7 +24,7 @@
 
 - 严格的 DDD 四层架构：接口层、应用层、领域层、基础设施层职责分离
 - MySQL 与 PostgreSQL 双数据源，分别管理用户和订单数据
-- JDBC、Spring Data JDBC 与 MyBatis-Plus 多种数据访问方式
+- 仓储层统一使用 MyBatis-Plus（双数据源双 SqlSessionFactory）
 - Redis 缓存与缓存穿透处理示例
 - RocketMQ 领域事件发布及优雅降级
 - 基于 SHA-256 的 API 签名验证
@@ -39,15 +39,15 @@
 | 分类 | 技术 | 版本或说明 |
 |---|---|---|
 | 运行环境 | JDK | 25 |
-| 应用框架 | Spring Boot | 4.1.0 |
+| 应用框架 | Spring Boot | 4.1.1 |
 | Web | Spring MVC | Spring Boot 管理版本 |
-| 数据访问 | Spring JDBC / Spring Data JDBC | Spring Boot 管理版本 |
-| 数据访问 | MyBatis-Plus | 3.5.16 |
+| 数据访问 | MyBatis-Plus（唯一持久化实现） | 3.5.17（boot4-starter） |
+| 数据访问 | Spring JDBC（JdbcClient / 事务管理器） | Spring Boot 管理版本 |
 | 用户数据库 | MySQL | 8.0+ |
 | 订单数据库 | PostgreSQL | 14+ |
 | 测试数据库 | H2 | 测试依赖 |
 | 缓存 | Redis | 6.0+ |
-| 消息队列 | RocketMQ | Starter 2.3.4 |
+| 消息队列 | RocketMQ | Starter 2.3.6 |
 | 参数校验 | Jakarta Validation | Spring Boot 管理版本 |
 | 邮件 | Spring Mail | Spring Boot 管理版本 |
 | 构建工具 | Maven Wrapper | Maven 3.9.12 |
@@ -141,7 +141,7 @@ flowchart LR
 
 - `userDataSource` / `userTransactionManager`：MySQL 用户库
 - `orderDataSource` / `orderTransactionManager`：PostgreSQL 订单库
-- `order.repository.implementation`：选择订单仓储的 `jdbc` 或 `mybatis-plus` 实现
+- 两套 SqlSessionFactory / SqlSessionTemplate 分别绑定各自数据源下的 Mapper（见 `MybatisPlusConfig`）
 
 跨数据源操作不使用本地事务强行绑定，通过应用服务编排和领域事件实现最终一致性。
 

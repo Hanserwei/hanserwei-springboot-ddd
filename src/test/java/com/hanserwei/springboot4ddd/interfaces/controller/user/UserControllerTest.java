@@ -1,10 +1,12 @@
 package com.hanserwei.springboot4ddd.interfaces.controller.user;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hanserwei.springboot4ddd.application.command.user.CreateUserCommand;
+import com.hanserwei.springboot4ddd.application.command.user.UpdateUserCommand;
+import com.hanserwei.springboot4ddd.application.dto.user.UserDTO;
 import com.hanserwei.springboot4ddd.application.service.user.UserService;
 import com.hanserwei.springboot4ddd.interfaces.vo.user.CreateUserRequest;
 import com.hanserwei.springboot4ddd.interfaces.vo.user.UpdateUserRequest;
-import com.hanserwei.springboot4ddd.interfaces.vo.user.UserResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,7 +60,7 @@ class UserControllerTest {
                 .address("Beijing")
                 .build();
 
-        UserResponse response = UserResponse.builder()
+        UserDTO response = UserDTO.builder()
                 .id(1L)
                 .name("testuser")
                 .email("test@example.com")
@@ -69,7 +71,7 @@ class UserControllerTest {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        when(userService.createUser(any(CreateUserRequest.class))).thenReturn(response);
+        when(userService.createUser(any(CreateUserCommand.class))).thenReturn(response);
 
         mockMvc.perform(post("/api/users")
                 .contentType("application/json")
@@ -79,7 +81,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.data.id").value(1L))
                 .andExpect(jsonPath("$.data.name").value("testuser"));
 
-        verify(userService, times(1)).createUser(any(CreateUserRequest.class));
+        verify(userService, times(1)).createUser(any(CreateUserCommand.class));
     }
 
     // ==================== READ 测试 ====================
@@ -87,9 +89,9 @@ class UserControllerTest {
     @Test
     @DisplayName("获取所有用户 - 成功")
     void testGetAllUsers_Success() throws Exception {
-        List<UserResponse> users = Arrays.asList(
-                UserResponse.builder().id(1L).name("user1").email("user1@example.com").build(),
-                UserResponse.builder().id(2L).name("user2").email("user2@example.com").build()
+        List<UserDTO> users = Arrays.asList(
+                UserDTO.builder().id(1L).name("user1").email("user1@example.com").build(),
+                UserDTO.builder().id(2L).name("user2").email("user2@example.com").build()
         );
 
         when(userService.getAllUsers()).thenReturn(users);
@@ -109,7 +111,7 @@ class UserControllerTest {
     @DisplayName("根据 ID 获取用户 - 成功")
     void testGetUserById_Success() throws Exception {
         long userId = 1L;
-        UserResponse userResponse = UserResponse.builder()
+        UserDTO userResponse = UserDTO.builder()
                 .id(userId)
                 .name("testuser")
                 .email("test@example.com")
@@ -132,7 +134,7 @@ class UserControllerTest {
     @DisplayName("根据用户名获取用户 - 成功")
     void testGetUserByName_Success() throws Exception {
         String userName = "testuser";
-        UserResponse userResponse = UserResponse.builder()
+        UserDTO userResponse = UserDTO.builder()
                 .id(1L)
                 .name(userName)
                 .email("test@example.com")
@@ -162,7 +164,7 @@ class UserControllerTest {
                 .address("Shanghai")
                 .build();
 
-        UserResponse response = UserResponse.builder()
+        UserDTO response = UserDTO.builder()
                 .id(userId)
                 .name("testuser")
                 .email("updated@example.com")
@@ -170,7 +172,7 @@ class UserControllerTest {
                 .address("Shanghai")
                 .build();
 
-        when(userService.updateUser(eq(userId), any(UpdateUserRequest.class)))
+        when(userService.updateUser(eq(userId), any(UpdateUserCommand.class)))
                 .thenReturn(response);
 
         mockMvc.perform(put("/api/users/{id}", userId)
@@ -181,7 +183,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.data.id").value(userId))
                 .andExpect(jsonPath("$.data.email").value("updated@example.com"));
 
-        verify(userService, times(1)).updateUser(eq(userId), any(UpdateUserRequest.class));
+        verify(userService, times(1)).updateUser(eq(userId), any(UpdateUserCommand.class));
     }
 
     // ==================== DELETE 测试 ====================

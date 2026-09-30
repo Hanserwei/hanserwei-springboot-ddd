@@ -1,164 +1,84 @@
-# 订单数据访问实现方式切换指南
+# 仓储实现指南（MyBatis-Plus 统一实现）
 
 ## 概述
 
-本项目实现了订单数据访问的灵活切换机制，支持在 **Spring Data JDBC** 和 **MyBatis Plus** 两种实现方式之间随意切换，无需修改任何业务代码。
+本脚手架的仓储层统一使用 **MyBatis-Plus** 作为持久化实现（自 2026-09 修订起，
+不再提供 Spring Data JDBC / 手写 JDBC 的多实现切换机制）。
+
+订单（PostgreSQL）与用户（MySQL）两个限界上下文各自拥有：
+
+- 一个 `XxxDO`（数据对象，携带 MyBatis-Plus 注解）
+- 一个 `XxxConverter`（DO ↔ 领域模型显式转换）
+- 一个 `XxxMybatisPlusMapper`（继承 `BaseMapper<XxxDO>`）
+- 一个 `XxxRepositoryImpl`（实现领域层定义的 `XxxRepository` 接口）
 
 ## 架构设计
 
-### 适配器模式应用
+### 依赖方向
 
-- **OrderRepository**：领域层仓储接口，定义所有数据访问契约
-- **OrderRepositoryImpl**：基础设施层的适配器实现，统一封装两种数据访问方式
-- **OrderJdbcRepository**：Spring Data JDBC 的底层实现
-- **OrderMybatisPlusRepository**：MyBatis Plus 的底层实现
-
-```
-OrderRepository (领域层接口)
-       ↑
-       |
-OrderRepositoryImpl (适配器 - 基础设施层)
-       |
-   ┌───┴───┐
-   |       |
-JDBC   MyBatis Plus
+```text
+domain/repository/order/OrderRepository        （接口，零框架依赖）
+        ↑ 实现
+infrastructure/repository/order/
+    OrderRepositoryImpl        ← 注入 →  OrderMybatisPlusMapper（BaseMapper<OrderDO>）
+    OrderDO / OrderConverter                OrderDO（@TableName/@TableId）
 ```
 
-## 切换方法
+领域层只认识 `Order` 与领域分页类型；持久化细节（DO、MP 注解、SQL）
+全部收敛在 infrastructure 层，边界处由 Converter 显式转换。
 
-### 方式一：配置文件切换（推荐）
+### 多数据源绑定
 
-编辑 `application.yaml` 文件：
+`MybatisPlusConfig` 手动装配两套会话工厂（`MybatisPlusAutoConfiguration`
+已在 `application.yaml` 中排除）：
 
-```yaml
-order:
-  repository:
-    implementation: jdbc  # 使用 JDBC（默认）
-    # 或改为：implementation: mybatis-plus  # 使用 MyBatis Plus
-```
+| Mapper 包 | 数据源 | 方言 |
+|---|---|---|
+| `infrastructure.repository.order` | `orderDataSource`（PostgreSQL，@Primary） | POSTGRE_SQL |
+| `infrastructure.repository.user` | `userDataSource`（MySQL） | MYSQL |
 
-### 方式二：环境变量切换
+分页由 `PaginationInnerInterceptor` 按方言自动生成 LIMIT/OFFSET 并执行 COUNT，
+`selectPage` 与带 `Page` 参数的自定义 `@Select` 均可分页。
 
-```bash
-export ORDER_REPOSITORY_IMPLEMENTATION=mybatis-plus
-java -jar app.jar
-```
+## 关键实现约定
 
-### 方式三：启动参数切换
-
-```bash
-java -jar app.jar --order.repository.implementation=mybatis-plus
-```
-
-### 方式四：不同环境配置
-
-创建不同的 Spring Profile 配置：
-
-**application-dev.yaml**（开发环境用 JDBC）：
-```yaml
-order:
-  repository:
-    implementation: jdbc
-```
-
-**application-prod.yaml**（生产环境用 MyBatis Plus）：
-```yaml
-order:
-  repository:
-    implementation: mybatis-plus
-```
-
-启动时指定：
-```bash
-java -jar app.jar --spring.profiles.active=prod
-```
-
-## 实现细节
-
-### OrderRepositoryImpl 的核心逻辑
-
-```java
-private boolean isUsingMybatisPlus() {
-    return "mybatis-plus".equalsIgnoreCase(implementationType);
-}
-
-@Override
-public Order save(Order order) {
-    if (isUsingMybatisPlus()) {
-        orderMybatisPlusRepository.insert(order);
-        return order;
-    }
-    return orderJdbcRepository.save(order);
-}
-```
-
-每个方法都根据配置动态选择使用哪种实现：
-
-| 方法 | JDBC | MyBatis Plus |
-|------|------|-------------|
-| `save()` | `orderJdbcRepository.save()` | `orderMybatisPlusRepository.insert()` |
-| `findById()` | `orderJdbcRepository.findById()` | `orderMybatisPlusRepository.selectById()` |
-| `findByOrderNo()` | `orderJdbcRepository.findByOrderNo()` | `orderMybatisPlusRepository.findByOrderNo()` |
-| `findByUserId()` | `orderJdbcRepository.findByUserId()` | `orderMybatisPlusRepository.findByUserId()` |
-| `findAll()` | `orderJdbcRepository.findAll()` | `orderMybatisPlusRepository.selectList()` |
-| `deleteById()` | `orderJdbcRepository.deleteById()` | `orderMybatisPlusRepository.deleteById()` |
+1. **主键回填**：DO 上使用 `@TableId(type = IdType.AUTO)`，`insert` 后主键自动回填，
+   仓储随后调用 `order.markCreated(id)` / `user.markPersisted(id)` 同步领域模型。
+2. **通用 CRUD 优先**：单表 CRUD 直接使用 `BaseMapper` 内置方法 +
+   `LambdaQueryWrapper` / `QueryWrapper`，仅非典型查询手写 `@Select`。
+3. **动态排序列必须走白名单**：排序字段来自 HTTP 入参（`?sort=`），
+   需经 `SORTABLE_COLUMNS` 这类白名单映射为真实列名，防止 SQL 注入；
+   动态列名只能用 `QueryWrapper`（String 列名），Lambda 版仅支持编译期字段引用。
+4. **表中暂不存在的字段**：用 `@TableField(exist = false)` 标注
+   （示例：`UserDO.wechat`），MyBatis-Plus 不会将其纳入生成的 SQL。
+5. **事务边界**：Repository 层不管理事务，事务由 Service 层通过
+   `@Transactional(transactionManager = "orderTransactionManager")` 显式指定。
 
 ## 依赖配置
 
-### pom.xml 中添加了
-
 ```xml
-<!-- MyBatis Plus -->
+<!-- Spring Boot 4 专用 starter（3.5.9 起分页拦截器拆分到 jsqlparser 包，两者版本保持一致） -->
 <dependency>
     <groupId>com.baomidou</groupId>
-    <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-    <version>3.5.7</version>
+    <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+    <version>3.5.17</version>
+</dependency>
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-jsqlparser</artifactId>
+    <version>3.5.17</version>
 </dependency>
 ```
 
-### MyBatis Plus 配置
-
-在 `MybatisPlusConfig` 中配置了分页插件等支持：
-
-```java
-@Configuration
-public class MybatisPlusConfig {
-    @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor() {
-        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
-        return interceptor;
-    }
-}
-```
-
-### 启动类配置
-
-在 `Application.java` 中添加了 Mapper 扫描：
-
-```java
-@MapperScan("com.hanserwei.springboot4ddd.infrastructure.repository.mybatisplus")
-public class Application { }
-```
-
-## 优势
-
-1. **灵活切换**：无需修改任何业务代码，仅修改配置即可切换数据访问方式
-2. **适配器模式**：完全解耦业务层与基础设施层的依赖
-3. **渐进式迁移**：支持在两种实现间逐步迁移
-4. **易于测试**：可以为不同实现方式编写专门的单元测试
-5. **性能优化**：可根据不同场景选择最优的数据访问方式
-
-## 使用建议
-
-- **开发阶段**：使用 JDBC，更直观、调试更容易
-- **生产环境**：根据性能测试结果选择，MyBatis Plus 有更多缓存和优化选项
-- **并发高频场景**：MyBatis Plus 的缓存机制可能更优
-- **简单查询场景**：JDBC 的开销更小
+> 迁移提示：若从旧版本（`mybatis-plus-spring-boot3-starter`）升级，
+> `MybatisSqlSessionFactoryBean` 的包名由 `com.baomidou.mybatisplus.extension.spring`
+> 变更为 `com.baomidou.mybatisplus.spring`；`DbType.POSTGRESQL` 改为
+> `DbType.POSTGRE_SQL`。
 
 ## 注意事项
 
-1. 两种实现都应该遵循同样的数据库 Schema
-2. 自定义查询时，需要在两个 Repository 中都实现
-3. 切换实现方式时，建议进行充分的测试
-4. 事务管理由 Service 层负责，Repository 层只做数据访问
+- `MybatisPlusAutoConfiguration` 被排除的原因：双数据源需要手动装配两套
+  `SqlSessionFactory`，自动配置只会装配单数据源。
+- `PageRequest`（领域分页）与 MP 的 `Page` 均为 1 起始页码，可直接透传。
+- Mapper 接口不支持方法重载（statement id 为方法名），分页版请命名为
+  `findPageByXxx` 等独立方法名。

@@ -129,16 +129,17 @@ private static final int TIMEOUT_HOURS = 2;  // 默认2小时，可修改为其�
 
 为支持订单超时查询，在Repository层添加了新方法：
 
-**OrderJdbcRepository.java**：
+**OrderMybatisPlusMapper.java**（MyBatis-Plus 注解 SQL）：
 ```java
-@Query("SELECT * FROM orders WHERE status = :status AND created_at < :beforeTime ORDER BY created_at ASC")
-List<Order> findByStatusAndCreatedAtBefore(@Param("status") String status, @Param("beforeTime") LocalDateTime beforeTime);
+@Select("SELECT * FROM orders WHERE status = #{status} AND created_at < #{createdAtBefore} ORDER BY created_at ASC")
+List<OrderDO> findByStatusAndCreatedAtBefore(@Param("status") String status,
+                                             @Param("createdAtBefore") LocalDateTime createdAtBefore);
 ```
 
 **使用示例**：
 ```java
 LocalDateTime twoHoursAgo = LocalDateTime.now().minusHours(2);
-List<Order> unpaidOrders = orderRepository.findByStatusAndCreatedAtBefore("PENDING", twoHoursAgo);
+List<Order> unpaidOrders = orderRepository.findExpiredPendingOrders(twoHoursAgo);
 ```
 
 ## 项目结构
@@ -157,10 +158,10 @@ src/main/java/com/hanserwei/springboot4ddd/
 │           └── OrderRepository.java             # 添加了超时查询方法
 └── infrastructure/
     └── repository/
-        ├── jdbc/
-        │   └── OrderJdbcRepository.java         # 添加了超时查询SQL
-        └── order/
-            └── OrderRepositoryImpl.java         # 实现了超时查询方法
+        ├── order/
+        │   ├── OrderMybatisPlusMapper.java     # 超时查询 @Select
+        │   └── OrderRepositoryImpl.java        # findExpiredPendingOrders 实现
+        └── user/
 ```
 
 ## 测试建议

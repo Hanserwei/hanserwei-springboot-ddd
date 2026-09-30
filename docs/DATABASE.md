@@ -1,224 +1,158 @@
-# 数据库配置说明
+# 数据库说明
 
-## 数据库架构
+## 数据源概览
 
-本项目使用**多数据源架构**，分别使用 MySQL 和 PostgreSQL：
+| 数据源 | 数据库 | 库名 | 表 | 用途 | 访问方式 |
+|---|---|---|---|---|---|
+| `userDataSource` | MySQL 8.0+ | `frog` | `users` | 用户数据 | MyBatis-Plus（`UserMybatisPlusMapper`） |
+| `orderDataSource` | PostgreSQL 14+ | `seed` | `orders` | 订单数据 | MyBatis-Plus（`OrderMybatisPlusMapper`） |
 
-### 1. MySQL - 用户数据库 (users)
-- **数据库名称**: `frog`
-- **表**: `users`
-- **端口**: `3306`
-- **用途**: 存储用户信息
-- **访问方式**: JdbcTemplate (`userJdbcTemplate`)
-
-### 2. PostgreSQL - 订单数据库 (orders)
-- **数据库名称**: `seed`
-- **表**: `orders`
-- **端口**: `5432`
-- **用途**: 存储订单信息
-- **访问方式**: Spring Data JDBC (`OrderJdbcRepository`)
+> 仓储层统一使用 MyBatis-Plus；`userJdbcClient`（Spring `JdbcClient`）仅供
+> 防腐层 `UserInfoQueryClientImpl` 做跨上下文只读查询，不属于仓储实现。
 
 ## 多数据源配置
 
 ### DataSourceConfig.java
-配置两个独立的数据源及其对应的 JdbcTemplate 和事务管理器：
+
+配置两个独立的数据源、事务管理器，并支持优雅降级（连接失败时记录错误、
+以虚拟数据源继续启动，不阻塞应用）：
 
 ```java
 // MySQL 数据源 - users
 @Bean(name = "userDataSource")
-public DataSource userDataSource() { ... }
-
-@Bean(name = "userJdbcTemplate")
-public JdbcTemplate userJdbcTemplate(@Qualifier("userDataSource") DataSource dataSource) { ... }
+public DataSource userDataSource(@Qualifier("userHikariConfig") HikariConfig hikariConfig) { ... }
 
 @Bean(name = "userTransactionManager")
-public PlatformTransactionManager userTransactionManager(@Qualifier("userDataSource") DataSource dataSource) { ... }
+public PlatformTransactionManager userTransactionManager(...) { ... }
 
-// PostgreSQL 数据源 - orders
+// PostgreSQL 数据源 - orders（@Primary）
 @Bean(name = "orderDataSource")
-@Primary  // Spring Data JDBC 使用此数据源
-public DataSource orderDataSource() { ... }
+@Primary
+public DataSource orderDataSource(@Qualifier("orderHikariConfig") HikariConfig hikariConfig) { ... }
 
 @Bean(name = "orderTransactionManager")
 @Primary
-public PlatformTransactionManager orderTransactionManager(@Qualifier("orderDataSource") DataSource dataSource) { ... }
+public PlatformTransactionManager orderTransactionManager(...) { ... }
+
+// 防腐层只读查询用的 JdbcClient
+@Bean(name = "userJdbcClient")
+public JdbcClient userJdbcClient(@Qualifier("userDataSource") DataSource dataSource) { ... }
 ```
 
-### OrderJdbcConfig.java
-配置 Spring Data JDBC 使用 PostgreSQL 数据源：
+### MybatisPlusConfig.java
+
+手动装配两套 MyBatis-Plus 会话工厂，把不同包下的 Mapper 绑定到各自数据源
+（`MybatisPlusAutoConfiguration` 已在 `application.yaml` 中排除）：
 
 ```java
 @Configuration
-@EnableJdbcRepositories(
-    basePackages = "com.hanserwei.springboot4ddd.infrastructure.repository.jdbc"
-)
-public class OrderJdbcConfig extends AbstractJdbcConfiguration {
-
-    @Bean
-    public NamedParameterJdbcOperations namedParameterJdbcOperations() {
-        return new NamedParameterJdbcTemplate(orderDataSource);
-    }
-}
+@MapperScan(basePackages = "...infrastructure.repository.order",
+        sqlSessionTemplateRef = "orderSqlSessionTemplate")   // PostgreSQL
+@MapperScan(basePackages = "...infrastructure.repository.user",
+        sqlSessionTemplateRef = "userSqlSessionTemplate")    // MySQL
+public class MybatisPlusConfig { ... }
 ```
 
-**关键点**: 只扫描 `infrastructure.repository.jdbc` 包，不包含 `user` 和 `order` 子包，避免误扫描。
+每套会话工厂各挂一个 `PaginationInnerInterceptor`，按方言
+（`POSTGRE_SQL` / `MYSQL`）生成 LIMIT/OFFSET 并自动 COUNT。
 
 ## 字段命名规范
 
-为了保持代码的一致性和可读性，项目采用统一的命名规范：
+Java 驼峰 ↔ 数据库下划线，依赖 MyBatis-Plus 的 `mapUnderscoreToCamelCase`
+（配置类中已显式开启）：
 
-### Java 代码 (驼峰命名)
-```java
-// User 模型
-private LocalDateTime createdTime;
-private LocalDateTime updatedTime;
+| Java（DO） | MySQL (users) | PostgreSQL (orders) |
+|---|---|---|
+| `createdTime` / `updatedTime` | `created_time` / `updated_time` | — |
+| `createdAt` / `updatedAt` | — | `created_at` / `updated_at` |
 
-// Order 模型
-private LocalDateTime createdTime;  // 映射到 created_at
-private LocalDateTime updatedTime;  // 映射到 updated_time
-```
+**注意**: 两张表的时间列命名不同（`*_time` vs `*_at`），DO 字段名也随之区分，
+转换时留意。
 
-### 数据库字段 (下划线命名)
-```sql
--- MySQL users 表
-created_time TIMESTAMP
-updated_time TIMESTAMP
+## Order 的映射配置
 
--- PostgreSQL orders 表 (注意: created_at 不是 created_time)
-created_at TIMESTAMP
-updated_time TIMESTAMP
-```
-
-**注意**: orders 表使用 `created_at` 而不是 `created_time`，这与 users 表不同。
-
-## Order 模型的映射配置
-
-Order 模型使用 **Spring Data JDBC**，通过 `@Column` 注解实现字段映射：
+`OrderDO` 携带 MyBatis-Plus 注解，领域模型 `Order` 完全不感知持久化：
 
 ```java
 @Data
-@Table("orders")
-public class Order {
+@Builder
+@TableName("orders")
+public class OrderDO {
 
-    @Id
+    @TableId(type = IdType.AUTO)   // 自增主键，insert 后回填
     private Long id;
 
-    @Column("order_no")
-    private String orderNo;
-
-    @Column("user_id")
+    private String orderNo;        // order_no（驼峰自动映射）
     private Long userId;
-
-    @Column("total_amount")
     private BigDecimal totalAmount;
-
     private String status;
-
-    @Column("created_at")        // 注意: created_at
-    private LocalDateTime createdTime;
-
-    @Column("updated_time")
-    private LocalDateTime updatedTime;
+    private LocalDateTime createdAt;   // created_at
+    private LocalDateTime updatedAt;   // updated_at
 }
 ```
 
-## User 模型的映射配置
+## User 的映射配置
 
-User 模型使用 **JdbcTemplate**，通过 `RowMapper` 手动映射：
+`UserDO` 同样以注解映射；`wechat` 列暂不存在于表中，显式声明不参与 SQL：
 
 ```java
-private static final RowMapper<User> USER_ROW_MAPPER = (rs, rowNum) -> User.builder()
-    .id(rs.getLong("id"))
-    .username(rs.getString("username"))
-    .email(rs.getString("email"))
-    .phone(rs.getString("phone"))
-    .nickname(rs.getString("nickname"))
-    .status(rs.getInt("status"))
-    .createdTime(rs.getTimestamp("created_time").toLocalDateTime())
-    .updatedTime(rs.getTimestamp("updated_time").toLocalDateTime())
-    .build();
+@Data
+@TableName("users")
+public class UserDO {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String name;
+    private String email;
+    private String phone;
+
+    @TableField(exist = false)   // 表中暂无此列，不参与生成的 SQL
+    private String wechat;
+
+    private String address;
+    private LocalDateTime createdTime;
+    private LocalDateTime updatedTime;
+}
 ```
 
 ## 数据库初始化
 
 ### MySQL 初始化
 ```bash
-# 执行初始化脚本
 mysql -u root -p < src/main/resources/db/mysql/init_users.sql
 ```
 
 ### PostgreSQL 初始化
 ```bash
-# 创建数据库
 psql -U postgres -c "CREATE DATABASE seed;"
-
-# 执行初始化脚本
 psql -U postgres -d seed -f src/main/resources/db/postgresql/init_orders.sql
 ```
 
 ## 配置文件
 
-### application-dev.yaml
-```yaml
-# MySQL - User database
-user:
-  datasource:
-    jdbc-url: jdbc:mysql://localhost:3306/frog?useUnicode=true&characterEncoding=utf-8&serverTimezone=UTC
-    username: frog_admin
-    password: ${MYSQL_PASSWORD}
-
-# PostgreSQL - Order database
-order:
-  datasource:
-    jdbc-url: jdbc:postgresql://localhost:5432/seed
-    username: postgres
-    password: ${POSTGRES_PASSWORD}
-```
+`application.yaml` 中两个数据源的 Hikari 连接池配置前缀分别为
+`spring.user.datasource` 与 `spring.order.datasource`，具体连接地址、
+账号密码见 `application-dev.yaml` / `application-prod.yaml`。
+降级开关：`spring.user.fallback.enabled` / `spring.order.fallback.enabled`。
 
 ## 注意事项
 
-1. **数据源路由关键配置**:
-   - **User 相关操作**: 使用 `@Qualifier("userJdbcTemplate")` 注入的 JdbcTemplate，连接到 MySQL
-   - **Order 相关操作**: 通过 Spring Data JDBC 自动路由到 `@Primary` 标记的 `orderDataSource`（PostgreSQL）
-   - **重要**: `orderDataSource` 必须标记 `@Primary`，Spring Data JDBC 才能正确使用 PostgreSQL
-
-2. **时间字段映射差异**:
-   - **users 表 (MySQL)**: `created_time`, `updated_time`
-   - **orders 表 (PostgreSQL)**: `created_at`, `updated_time`
-   - Java 代码统一使用: `createdTime`, `updatedTime`
-
-3. **字段映射总结**:
-   ```
-   Java            MySQL (users)      PostgreSQL (orders)
-   ─────────────   ────────────────   ──────────────────
-   createdTime  →  created_time       created_at
-   updatedTime  →  updated_time       updated_time
-   ```
-
-4. **数据库字段映射方式**:
-   - **User** (JdbcTemplate):
-     - 使用 `RowMapper` 手动映射
-     - 通过 `@Qualifier("userJdbcTemplate")` 指定数据源
-   - **Order** (Spring Data JDBC):
-     - 使用 `@Column` 注解自动映射
-     - 通过 `OrderJdbcConfig` 配置使用 PostgreSQL
-
-5. **数据库驱动**:
-   - MySQL: `com.mysql.cj.jdbc.Driver`
-   - PostgreSQL: `org.postgresql.Driver`
-
-6. **事务管理**:
-   - User: 使用 `@Transactional(transactionManager = "userTransactionManager")`
-   - Order: Spring Data JDBC 自动使用 `orderTransactionManager`
+1. **数据源路由**: 由 `@MapperScan` 的 `sqlSessionTemplateRef` 显式绑定，
+   order 侧的 `SqlSessionFactory` / `SqlSessionTemplate` 标记 `@Primary`。
+2. **事务管理**: Service 层显式指定事务管理器——
+   - User: `@Transactional(transactionManager = "userTransactionManager")`
+   - Order: `@Transactional(transactionManager = "orderTransactionManager")`
+   - 跨库操作不做本地强一致，通过应用服务编排 + 领域事件最终一致。
+3. **动态排序**: 用户列表 `?sort=` 入参经 `UserRepositoryImpl.SORTABLE_COLUMNS`
+   白名单映射后才进入 SQL，防注入；动态列名用 `QueryWrapper`（String 列名）。
+4. **数据库驱动**: MySQL `com.mysql.cj.jdbc.Driver`；PostgreSQL `org.postgresql.Driver`。
 
 ## 测试数据
 
 ### users 表
-- user1 (启用)
-- user2 (启用)
-- user3 (禁用)
+- user1 / user2 / user3（见 `init_users.sql`）
 
 ### orders 表
-- ORD1000000001 (PENDING)
-- ORD1000000002 (PAID)
-- ORD1000000003 (COMPLETED)
+- ORD1000000001 (PENDING)、ORD1000000002 (PAID)、ORD1000000003 (COMPLETED)
+  （见 `init_orders.sql`）
