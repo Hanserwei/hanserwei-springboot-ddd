@@ -1,32 +1,16 @@
 package com.hanserwei.springboot4ddd.infrastructure.config;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import com.hanserwei.springboot4ddd.infrastructure.client.user.UserInfoQueryClientImpl;
+import com.hanserwei.springboot4ddd.infrastructure.repository.order.OrderRepositoryImpl;
+import com.hanserwei.springboot4ddd.infrastructure.repository.user.UserRepositoryImpl;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
-import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.context.annotation.Import;
 
-import javax.sql.DataSource;
-
-/**
- * 测试环境配置
- * 提供简化的测试专用配置
- *
- * @author Hanserwei
- * @since 1.0.0
- */
-@TestConfiguration
-@Profile("test")
+/** 加载生产中的双数据源和 Mapper 装配，测试不依赖 Redis、MQ 或 SMTP。 */
+@TestConfiguration(proxyBeanMethods = false)
+@EnableConfigurationProperties
+@Import({DataSourceConfig.class, MybatisPlusConfig.class,
+        UserRepositoryImpl.class, OrderRepositoryImpl.class, UserInfoQueryClientImpl.class})
 public class TestConfig {
-
-    /**
-     * 测试环境的事务管理器
-     */
-    @Bean(name = "orderTransactionManager")
-    @Primary
-    public PlatformTransactionManager orderTransactionManager(DataSource dataSource) {
-        return new DataSourceTransactionManager(dataSource);
-    }
 }

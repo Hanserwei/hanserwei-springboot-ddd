@@ -3,15 +3,17 @@ package com.hanserwei.springboot4ddd.infrastructure.repository.user;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hanserwei.springboot4ddd.domain.exception.EntityNotFoundException;
+import com.hanserwei.springboot4ddd.domain.exception.UniquenessViolationException;
 import com.hanserwei.springboot4ddd.domain.model.user.User;
 import com.hanserwei.springboot4ddd.domain.page.PageRequest;
 import com.hanserwei.springboot4ddd.domain.page.PageResult;
-import com.hanserwei.springboot4ddd.domain.page.SortOrder;
 import com.hanserwei.springboot4ddd.domain.repository.user.UserRepository;
+import com.hanserwei.springboot4ddd.infrastructure.repository.RepositorySorts;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -54,14 +56,17 @@ public class UserRepositoryImpl implements UserRepository {
 
     @Override
     public User save(User user) {
-        UserDO userDO = UserConverter.toDO(user);
-        LocalDateTime now = LocalDateTime.now();
-        if (userDO.getCreatedTime() == null) {
-            userDO.setCreatedTime(now);
+        if (user.getId() != null) {
+            throw new IllegalArgumentException("已有用户请通过 update 更新");
         }
-        userDO.setUpdatedTime(now);
-        // IdType.AUTO：insert 后主键自动回填到 userDO.id
-        userMapper.insert(userDO);
+        UserDO userDO = UserConverter.toDO(user);
+        // 时间由聚合维护；IdType.AUTO 在 insert 后回填主键。
+        try {
+            userMapper.insert(userDO);
+        } catch (DuplicateKeyException ex) {
+            // 预查询无法阻止并发注册；数据库唯一约束是最后防线。
+            throw new UniquenessViolationException("用户名或邮箱已存在");
+        }
         user.markPersisted(userDO.getId());
         log.info("User saved with id: {}", user.getId());
         return user;
@@ -90,20 +95,14 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public List<User> findAll() {
         return UserConverter.toModelList(userMapper.selectList(
-                new LambdaQueryWrapper<UserDO>().orderByDesc(UserDO::getCreatedTime)));
+                new LambdaQueryWrapper<UserDO>()
+                        .orderByDesc(UserDO::getCreatedTime, UserDO::getId)));
     }
 
     @Override
     public PageResult<User> findAll(PageRequest pageRequest) {
-        // 排序列来自 HTTP 入参，必须经白名单映射为列名；
-        // 无显式排序时按创建时间倒序，保证分页结果稳定。
-        // 注：动态列名只能用 QueryWrapper（String 列名），LambdaQueryWrapper 仅支持编译期字段引用。
         QueryWrapper<UserDO> wrapper = new QueryWrapper<>();
-        if (pageRequest.hasSort()) {
-            applySorts(wrapper, pageRequest.getSorts());
-        } else {
-            wrapper.orderByDesc("created_time");
-        }
+        RepositorySorts.apply(wrapper, pageRequest.getSorts(), SORTABLE_COLUMNS, "created_time");
 
         Page<UserDO> page = userMapper.selectPage(
                 new Page<>(pageRequest.getPageNumber(), pageRequest.getPageSize()), wrapper);
@@ -119,11 +118,14 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public User update(User user) {
         UserDO userDO = UserConverter.toDO(user);
-        userDO.setUpdatedTime(LocalDateTime.now());
-
-        int updated = userMapper.updateById(userDO);
+        int updated;
+        try {
+            updated = userMapper.updateById(userDO);
+        } catch (DuplicateKeyException ex) {
+            throw new UniquenessViolationException("用户名或邮箱已存在");
+        }
         if (updated == 0) {
-            throw new IllegalArgumentException("User not found with id: " + userDO.getId());
+            throw new EntityNotFoundException("用户", "id", userDO.getId());
         }
         log.info("User updated with id: {}", user.getId());
         return user;
@@ -133,7 +135,7 @@ public class UserRepositoryImpl implements UserRepository {
     public void deleteById(Long id) {
         int deleted = userMapper.deleteById(id);
         if (deleted == 0) {
-            throw new IllegalArgumentException("User not found with id: " + id);
+            throw new EntityNotFoundException("用户", "id", id);
         }
         log.info("User deleted with id: {}", id);
     }
@@ -150,17 +152,4 @@ public class UserRepositoryImpl implements UserRepository {
                 new LambdaQueryWrapper<UserDO>().eq(UserDO::getEmail, email)) > 0;
     }
 
-    /**
-     * 将领域排序条件映射为 SQL 排序（经白名单过滤，未知属性直接忽略）
-     */
-    private void applySorts(QueryWrapper<UserDO> wrapper, List<SortOrder> sorts) {
-        for (SortOrder sort : sorts) {
-            String column = SORTABLE_COLUMNS.get(sort.getProperty());
-            if (column == null) {
-                log.debug("忽略未知排序字段: {}", sort.getProperty());
-                continue;
-            }
-            wrapper.orderBy(true, sort.getDirection() == SortOrder.Direction.ASC, column);
-        }
-    }
 }

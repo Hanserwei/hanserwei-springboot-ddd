@@ -6,15 +6,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
  * Redis 配置类
  *
- * <p>仅负责 RedisTemplate 的 Bean 装配。缓存键前缀、TTL 等业务策略
- * 已搬到 {@code application.port.CachePolicy}。
+ * <p>装配 RedisTemplate；缓存键前缀和 TTL 由 {@code application.port.CachePolicy} 定义。
  *
  * @author Hanserwei
  * @since 1.0.0

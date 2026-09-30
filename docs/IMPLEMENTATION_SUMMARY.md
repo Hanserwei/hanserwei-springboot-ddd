@@ -1,140 +1,38 @@
-# 实现总结
+# 工程能力概览
 
-> **历史文档（2026-09 修订）**：本文描述的“JDBC / MyBatis-Plus 双实现切换机制”
-> 已被移除，仓储层现为 MyBatis-Plus 单一实现，详见
-> `docs/REPOSITORY_IMPLEMENTATION_GUIDE.md`。以下内容仅作历史记录保留。
+这个脚手架以 user、order 展示 DDD 四层结构与常用基础设施。示例可整体替换，按[新项目起步指南](START_NEW_PROJECT.md)接入自己的业务。
 
-## 已完成的工作
+## 业务示例
 
-已成功实现了基于 MyBatis Plus 的订单数据操作机制，使得可以在 JDBC 和 MyBatis Plus 两种实现方式之间灵活切换。
+| 示例 | 展示内容 | 主要入口 |
+|---|---|---|
+| user | 注册、资料修改、名称和邮箱唯一性 | `User`、`UserService`、`UserRepositoryImpl` |
+| order | 创建、支付、取消、完成、并发更新 | `Order`、`OrderService`、`OrderRepositoryImpl` |
+| 用户订单列表 | 一次批量查询用户简介 | `UserInfoQueryClient`、`UserInfoQueryClientImpl` |
 
-## 核心变更
+聚合通过行为改变状态。领域仓储接口与持久化实现分离，DO 和 Converter 位于基础设施层；用户简介只投影必要字段，全部业务数据库查询使用 MyBatis-Plus。
 
-### 1. **pom.xml** - 添加MyBatis Plus依赖
-```xml
-<dependency>
-    <groupId>com.baomidou</groupId>
-    <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-    <version>3.5.16</version>
-</dependency>
-```
+## 数据与事务
 
-### 2. **OrderMybatisPlusRepository.java** - 新建
-- 位置: `src/main/java/com/hanserwei/springboot4ddd/infrastructure/repository/mybatisplus/`
-- 功能: MyBatis Plus Mapper 接口，继承 `BaseMapper<Order>`
-- 实现的方法:
-  - `findByOrderNo()` - 根据订单号查找
-  - `findByUserId()` - 根据用户ID查找所有订单
-  - 其他CRUD操作由 `BaseMapper` 提供
+MySQL、PostgreSQL 各有数据源、Mapper 工厂和本地事务管理器。分页和乐观锁由 MyBatis-Plus 插件处理。数据库脚本与实际 DO 对齐，包含必要的唯一约束、状态约束和查询索引。
 
-### 3. **OrderRepositoryImpl.java** - 适配器模式改造
-- 新增字段: `orderMybatisPlusRepository`
-- 新增配置注入: `@Value("${order.repository.implementation:jdbc}")`
-- 新增判断方法: `isUsingMybatisPlus()`
-- 所有Repository方法均支持两种实现的动态切换
+静态包绑定和官方动态数据源的使用场景见[数据库说明](DATABASE.md)，映射与查询约定见[仓储指南](REPOSITORY_IMPLEMENTATION_GUIDE.md)。
 
-### 4. **MybatisPlusConfig.java** - 新建
-- 位置: `src/main/java/com/hanserwei/springboot4ddd/infrastructure/config/`
-- 功能: MyBatis Plus 配置类，配置分页插件等支持
+## 通用能力
 
-### 5. **Application.java** - 启动类改造
-- 新增注解: `@MapperScan("com.hanserwei.springboot4ddd.infrastructure.repository.mybatisplus")`
-- 功能: 扫描并注册所有 MyBatis Plus Mapper
+| 能力 | 入口 | 配置 |
+|---|---|---|
+| HTTP 响应与异常 | `ApiResponse`、`GlobalExceptionHandler` | Web 配置 |
+| 参数校验 | 请求对象上的 Jakarta Validation 注解 | Controller `@Valid` |
+| 缓存 | `CacheService`、`SimpleCacheService` | `spring.data.redis`、`CachePolicy` |
+| 事件传输 | `DomainEventPublisher`、订单事件 Producer | `rocketmq.*` |
+| 接口签名 | `SignatureInterceptor`、`SignatureUtil` | `sign.*`、`apiauth-config.yaml` |
+| 超时任务 | `OrderScanScheduledTask` | `notification.*` |
+| 邮件 | `EmailSender`、`EmailService` | `spring.mail.*` |
+| 依赖状态 | 健康接口与状态注册表 | 数据源和 MQ 降级开关 |
 
-### 6. **application.yaml** - 配置文件改造
-- 新增配置块:
-  ```yaml
-  order:
-    repository:
-      implementation: jdbc  # 可改为 mybatis-plus
-  ```
+新项目按需裁剪能力，并为自身业务补充认证授权、可靠消息或通知去重等规则。
 
-### 7. **docs/REPOSITORY_IMPLEMENTATION_GUIDE.md** - 使用指南
-- 详细说明如何切换实现方式
-- 包含架构设计、使用方法、优势说明等
+## 测试起点
 
-## 架构设计
-
-```
-OrderRepository (接口 - 领域层)
-         ↑
-         |
-OrderRepositoryImpl (适配器 - 基础设施层)
-         |
-    ┌────┴──────┐
-    |           |
-JDBC        MyBatis Plus
-Repository  Repository
-```
-
-## 切换方式
-
-### 方式1: 配置文件（推荐）
-编辑 `application.yaml`:
-```yaml
-order:
-  repository:
-    implementation: mybatis-plus  # 改为使用 MyBatis Plus
-```
-
-### 方式2: 启动参数
-```bash
-java -jar app.jar --order.repository.implementation=mybatis-plus
-```
-
-### 方式3: 环境变量
-```bash
-export ORDER_REPOSITORY_IMPLEMENTATION=mybatis-plus
-java -jar app.jar
-```
-
-### 方式4: 不同环保配置
-- `application-dev.yaml`: `implementation: jdbc`
-- `application-prod.yaml`: `implementation: mybatis-plus`
-
-## 主要优势
-
-1. **无缝切换**: 修改配置即可切换，无需改动业务代码
-2. **适配器模式**: 完美解耦业务层和基础设施层
-3. **渐进式迁移**: 支持逐步迁移数据访问方式
-4. **易于测试**: 可为两种实现编写独立的测试
-5. **灵活选择**: 根据场景选择最优实现方式
-
-## 支持的操作
-
-| 操作 | JDBC | MyBatis Plus |
-|------|------|-------------|
-| save() | orderJdbcRepository.save() | insert() |
-| findById() | findById() | selectById() |
-| findByOrderNo() | findByOrderNo() | findByOrderNo() |
-| findByUserId() | findByUserId() | findByUserId() |
-| findAll() | findAll() | selectList(null) |
-| deleteById() | deleteById() | deleteById() |
-
-## 注意事项
-
-1. 两种实现使用同一个 Order 模型类
-2. 新增查询时需在两个 Repository 中都添加相应方法
-3. MyBatis Plus 会自动处理驼峰命名和列名映射
-4. 事务管理仍由 Service 层负责
-5. 建议在不同环境使用不同实现，测试充分后再切换
-
-## 文件清单
-
-### 新建文件
-- `src/main/java/.../infrastructure/repository/mybatisplus/OrderMybatisPlusRepository.java`
-- `src/main/java/.../infrastructure/config/MybatisPlusConfig.java`
-- `REPOSITORY_IMPLEMENTATION_GUIDE.md`
-
-### 修改文件
-- `pom.xml` - 添加 MyBatis Plus 依赖
-- `src/main/java/.../Application.java` - 添加 Mapper 扫描
-- `src/main/java/.../infrastructure/repository/order/OrderRepositoryImpl.java` - 适配器改造
-- `src/main/resources/application.yaml` - 添加配置
-
-## 验证方法
-
-1. 编译项目: `mvn clean package`
-2. 运行测试验证两种模式都能正常工作
-3. 修改配置文件测试切换功能
-4. 查看日志确认使用的是正确的实现方式
+Controller 和 Cache 测试演示隔离测试；一份 4 用例的持久化测试使用 H2 加载实际 Mapper 和工厂，验证关键字段、分页、双库绑定、乐观锁和回滚。测试可通过 `./mvnw test` 独立执行。

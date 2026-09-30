@@ -1,5 +1,6 @@
 package com.hanserwei.springboot4ddd.infrastructure.repository.user;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -17,9 +18,6 @@ import java.time.LocalDateTime;
  * <p>仅承担"与 users 表字段一对一映射"的职责，MyBatis-Plus 的
  * ORM 注解集中在这里，领域模型 {@code User} 不背负持久化细节，
  * 转换由 {@link UserConverter} 显式完成。
- *
- * <p>当前数据库未包含 {@code wechat} 列，DO 保留该字段供未来扩展，
- * 通过 {@code @TableField(exist = false)} 告知 MyBatis-Plus 不参与 SQL。
  *
  * @author Hanserwei
  * @since 1.0.0
@@ -41,16 +39,17 @@ public class UserDO {
 
     private String email;
 
+    // 可选资料允许显式清空；MP 默认 NOT_NULL 策略会跳过这些更新。
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String phone;
 
-    /**
-     * 表中暂无此列，不参与生成的 SQL
-     */
-    @TableField(exist = false)
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String wechat;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String address;
 
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdTime;
 
     private LocalDateTime updatedTime;

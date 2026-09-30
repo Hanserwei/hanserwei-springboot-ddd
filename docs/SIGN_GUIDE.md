@@ -1,164 +1,91 @@
-# API 签名验证使用指南
+# API 签名示例
 
-## 概述
+接口通过 `@RequireSign` 启用签名检查。调用方和权限定义在 `apiauth-config.yaml`，密钥通过环境变量提供。
 
-本项目实现了基于 SHA-256 的 API 签名验证机制，用于保护 API 接口安全。
+订单示例的支付、取消、完成和删除需要签名。user/order 的其他接口是否启用签名，由新项目按调用场景配置。
 
-## 签名机制
+## 算法与路径
 
-### 签名算法
+不含参数时：
 
-**不带参数签名（WithParams.FALSE）**:
-```
-signSource = appCode + secretKey + path + timestamp
-sign = SHA256(signSource)
-```
-
-**带参数签名（WithParams.TRUE）**:
-```
-signSource = param1=value1&param2=value2&... + appCode + secretKey + path + timestamp
-sign = SHA256(signSource)
+```text
+source = appCode + secretKey + path + timestamp
+sign = SHA256(source)
 ```
 
-### 签名流程
+含参数时，先过滤空值和复杂类型，再将标量参数按名称排序并拼接：
 
-1. 客户端准备请求参数
-2. 按照签名算法生成签名
-3. 在请求头中携带签名信息
-4. 服务端验证签名有效性
+```text
+source = key1=value1&key2=value2 + appCode + secretKey + path + timestamp
+sign = SHA256(source)
+```
+
+路径使用 Spring MVC 匹配到的模板，例如 `/api/orders/{id}/pay`。实际 URL 可以是 `/api/orders/1/pay`，签名时仍使用模板路径。服务端自行解析路径，不依赖 `Sign-path` 请求头。
 
 ## 请求头
 
-| Header名称 | 必填 | 说明 | 示例 |
-|-----------|------|------|------|
-| Sign-appCode | 是 | 应用编码 | test-app |
-| Sign-sign | 是 | 签名值 | abc123... |
-| Sign-time | 是 | 时间戳(毫秒) | 1704358096000 |
-| Sign-path | 否 | API路径 | /api/order/create |
+| Header | 含义 |
+|---|---|
+| `Sign-appCode` | 配置中的调用方标识 |
+| `Sign-time` | 当前毫秒时间戳 |
+| `Sign-sign` | SHA-256 十六进制签名 |
 
-## 使用示例
+时间窗口使用 `sign.signature.ttl`，默认 10 分钟。
 
-### 1. 不带参数签名（GET请求）
+## 调用支付示例
 
-```bash
-# 准备参数
-appCode="test-app"
-secretKey="test-secret-key-123"
-path="/api/order/1"
-timestamp=$(date +%s%3N)
+以下 Python 示例使用已配置的 ios1 调用方，将订单 ID 替换为自己的待支付订单：
 
-# 生成签名
-signSource="${appCode}${secretKey}${path}${timestamp}"
-sign=$(echo -n "${signSource}" | openssl dgst -sha256 | awk '{print $2}')
+```python
+import hashlib
+import os
+import time
+import urllib.request
 
-# 发起请求
-curl -X GET "http://localhost:8080/api/order/1" \
-  -H "Sign-appCode: ${appCode}" \
-  -H "Sign-sign: ${sign}" \
-  -H "Sign-time: ${timestamp}"
+app_code = "ios1"
+secret = os.environ["API_AUTH_IOS_SECRET"]
+path = "/api/orders/{id}/pay"
+timestamp = str(int(time.time() * 1000))
+sign = hashlib.sha256((app_code + secret + path + timestamp).encode()).hexdigest()
+request = urllib.request.Request(
+    "http://localhost:8080/api/orders/1/pay",
+    method="POST",
+    headers={"Sign-appCode": app_code, "Sign-time": timestamp, "Sign-sign": sign},
+)
+with urllib.request.urlopen(request) as response:
+    print(response.read().decode())
 ```
 
-### 2. 带参数签名（POST请求）
-
-```bash
-# 准备参数
-appCode="test-app"
-secretKey="test-secret-key-123"
-path="/api/order/create"
-timestamp=$(date +%s%3N)
-
-# 请求参数（按字典序排序）
-params="totalAmount=299.99&userId=1"
-
-# 生成签名
-signSource="${params}${appCode}${secretKey}${path}${timestamp}"
-sign=$(echo -n "${signSource}" | openssl dgst -sha256 | awk '{print $2}')
-
-# 发起请求
-curl -X POST "http://localhost:8080/api/order/create" \
-  -H "Content-Type: application/json" \
-  -H "Sign-appCode: ${appCode}" \
-  -H "Sign-sign: ${sign}" \
-  -H "Sign-time: ${timestamp}" \
-  -d '{"userId":1,"totalAmount":299.99}'
-```
-
-## 注解使用
-
-### @RequireSign
-
-标记需要签名验证的接口：
+## 注解与配置
 
 ```java
-// 类级别 - 整个Controller都需要签名
-@RestController
-@RequireSign
-public class OrderController {
-    // ...
-}
-
-// 方法级别 - 单个方法需要签名
-@PostMapping("/create")
-@RequireSign(withParams = WithParams.TRUE)
-public ApiResponse<Order> createOrder() {
-    // ...
+@PostMapping("/{id}/pay")
+@RequireSign(withParams = WithParams.FALSE)
+public ApiResponse<OrderDTO> payOrder(@PathVariable Long id) {
+    return ApiResponse.success(orderService.payOrder(id));
 }
 ```
 
-### @IgnoreSignHeader
-
-跳过签名验证：
-
-```java
-@PostMapping("/public")
-@IgnoreSignHeader
-public ApiResponse<?> publicMethod() {
-    // 此方法不需要签名验证
-}
-```
-
-## 配置说明
-
-在 `application.yml` 中配置：
+注解可以放在方法或类上；方法配置优先。`@IgnoreSignHeader` 可跳过类级别签名要求。`WithParams.DEFAULT` 使用 `sign.signature.default-with-params`，默认 false。
 
 ```yaml
 sign:
   signature:
-    ttl: 600000  # 签名有效期（毫秒），默认10分钟
-    default-with-params: false  # 默认是否使用参数签名
-  cached-body-path-patterns:  # 需要缓存请求体的路径
-    - /api/order/**
-    - /api/payment/**
+    ttl: 600000
+    default-with-params: false
+  allow-cached-body: true
+  cached-body-path-patterns:
+    - /api/orders/**
+
+apiauth:
+  apps:
+    - appCode: ios1
+      appName: local-example
+      secretKey: ${API_AUTH_IOS_SECRET}
+      permissions:
+        - "/api/orders/{id}/pay"
 ```
 
-## 应用密钥配置
+权限路径应与 Controller 模板一致。需要把请求体纳入签名时，配置相应请求体缓存路径。
 
-在 `SignatureInterceptor.java` 中配置应用密钥：
-
-```java
-private static final Map<String, String> APP_SECRETS = new HashMap<>();
-static {
-    APP_SECRETS.put("test-app", "test-secret-key-123");
-    APP_SECRETS.put("prod-app", "prod-secret-key-456");
-}
-```
-
-生产环境建议从数据库或配置中心读取密钥。
-
-## 错误码
-
-| 错误信息 | 说明 |
-|---------|------|
-| 缺少必需的签名 header | 请求头缺少 Sign-appCode、Sign-sign 或 Sign-time |
-| 时间戳格式错误 | Sign-time 不是有效的时间戳 |
-| 签名已过期 | 请求时间超过有效期（默认10分钟） |
-| 未知的应用编码 | appCode 不存在或无效 |
-| 签名验证失败 | 签名计算结果不匹配 |
-
-## 最佳实践
-
-1. **密钥管理**: 不要在代码中硬编码密钥，使用配置中心或密钥管理系统
-2. **HTTPS**: 生产环境必须使用 HTTPS 传输
-3. **时间同步**: 确保客户端和服务端时间同步
-4. **签名缓存**: 可以缓存最近的签名，防止重放攻击
-5. **参数排序**: 带参数签名时，参数必须按字典序排序
+新项目应按自身客户端协议使用签名示例，并实现自己的用户认证、授权和请求重放处理。异常信息包括缺少请求头、时间戳错误、签名过期、未知调用方、无接口权限和签名不匹配。

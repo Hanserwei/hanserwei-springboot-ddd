@@ -12,8 +12,9 @@ apiauth:
       permissions:
         - "/api/orders/{id}/cancel"
         - "/api/orders/{id}/pay"
+        - "/api/orders/{id}/complete"
         - "/api/orders/{id}"
-        - "/api/orders/users/{userId}"
+        - "/api/orders/user/{userId}"
         - "/api/users/{userId}"
         - "/api/admin/admin-sign-submit"
     - appCode: h5

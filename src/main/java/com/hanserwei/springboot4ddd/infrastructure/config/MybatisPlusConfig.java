@@ -3,6 +3,7 @@ package com.hanserwei.springboot4ddd.infrastructure.config;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.logging.slf4j.Slf4jImpl;
@@ -20,7 +21,9 @@ import javax.sql.DataSource;
 /**
  * MyBatis-Plus 多数据源配置
  *
- * <p>由于 {@code MybatisPlusAutoConfiguration} 已在 application.yaml 中排除，
+ * <p>采用固定 Mapper 包绑定，保持两个异构库与本地事务相互独立。
+ * 官方另有 dynamic-datasource（含 Boot 4 starter），选型说明见 docs/DATABASE.md。
+ * 由于 {@code MybatisPlusAutoConfiguration} 已在 application.yaml 中排除，
  * 此处手动装配两套 SqlSessionFactory / SqlSessionTemplate，
  * 并通过两个 {@code @MapperScan} 把不同包下的 Mapper 绑定到各自数据源：
  *
@@ -51,7 +54,7 @@ public class MybatisPlusConfig {
     @Primary
     public SqlSessionFactory orderSqlSessionFactory(
             @Qualifier("orderDataSource") DataSource dataSource) throws Exception {
-        return buildSqlSessionFactory(dataSource, DbType.POSTGRE_SQL);
+        return buildSqlSessionFactory(dataSource, DbType.POSTGRE_SQL, "classpath*:/mapper/order/**/*.xml");
     }
 
     @Bean
@@ -67,7 +70,7 @@ public class MybatisPlusConfig {
     @Bean
     public SqlSessionFactory userSqlSessionFactory(
             @Qualifier("userDataSource") DataSource dataSource) throws Exception {
-        return buildSqlSessionFactory(dataSource, DbType.MYSQL);
+        return buildSqlSessionFactory(dataSource, DbType.MYSQL, "classpath*:/mapper/user/**/*.xml");
     }
 
     @Bean
@@ -79,12 +82,14 @@ public class MybatisPlusConfig {
     /**
      * 构建绑定指定数据源的 MyBatis-Plus SqlSessionFactory
      */
-    private SqlSessionFactory buildSqlSessionFactory(DataSource dataSource, DbType dbType) throws Exception {
+    private SqlSessionFactory buildSqlSessionFactory(DataSource dataSource, DbType dbType,
+                                                    String mapperLocations) throws Exception {
         MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
 
-        // 分页拦截器：按方言生成 LIMIT/OFFSET，并自动执行 COUNT
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        // 分页放在拦截器链末尾，按数据库方言生成 LIMIT/OFFSET 并自动 COUNT。
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(dbType));
         factoryBean.setPlugins(interceptor);
 
@@ -93,9 +98,9 @@ public class MybatisPlusConfig {
         configuration.setLogImpl(Slf4jImpl.class);
         factoryBean.setConfiguration(configuration);
 
-        // 预留 XML mapper 位置（当前全部使用注解 SQL）
+        // XML 和注解 Mapper 一样按数据源隔离，避免两套工厂都加载所有 XML。
         factoryBean.setMapperLocations(new PathMatchingResourcePatternResolver()
-                .getResources("classpath*:/mapper/**/*.xml"));
+                .getResources(mapperLocations));
 
         return factoryBean.getObject();
     }

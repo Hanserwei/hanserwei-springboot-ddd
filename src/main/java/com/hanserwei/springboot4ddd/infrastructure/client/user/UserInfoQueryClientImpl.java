@@ -1,9 +1,10 @@
 package com.hanserwei.springboot4ddd.infrastructure.client.user;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hanserwei.springboot4ddd.domain.client.user.UserBriefInfo;
 import com.hanserwei.springboot4ddd.domain.client.user.UserInfoQueryClient;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.simple.JdbcClient;
+import com.hanserwei.springboot4ddd.infrastructure.repository.user.UserDO;
+import com.hanserwei.springboot4ddd.infrastructure.repository.user.UserMybatisPlusMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -11,26 +12,21 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * 用户信息查询客户端实现（防腐层适配器）。
- *
- * <p>直接访问 user 上下文的 users 表，但只读取 name / phone 两个字段，
- * 避免与 UserRepository 共享更宽的查询能力。
- *
- * <p>使用 IN 批量查询，一次性拉回所有需要的用户信息，消除 N+1。
- *
- * @author Hanserwei
- * @since 1.0.0
+ * 用户简介防腐层适配器：通过用户 Mapper 批量读取 id/name/phone。
+ * 订单上下文只依赖 UserInfoQueryClient，不接触用户 DO 和 Mapper。
  */
 @Component
 public class UserInfoQueryClientImpl implements UserInfoQueryClient {
 
-    private final JdbcClient jdbcClient;
+    private final UserMybatisPlusMapper userMapper;
 
-    public UserInfoQueryClientImpl(@Qualifier("userJdbcClient") JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public UserInfoQueryClientImpl(UserMybatisPlusMapper userMapper) {
+        this.userMapper = userMapper;
     }
 
     @Override
@@ -38,20 +34,18 @@ public class UserInfoQueryClientImpl implements UserInfoQueryClient {
         if (userIds == null || userIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        Set<Long> distinct = new LinkedHashSet<>(userIds);
+        Set<Long> distinct = userIds.stream().filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (distinct.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        LambdaQueryWrapper<UserDO> query = new LambdaQueryWrapper<UserDO>()
+                .select(UserDO::getId, UserDO::getName, UserDO::getPhone)
+                .in(UserDO::getId, distinct);
         Map<Long, UserBriefInfo> result = new HashMap<>(distinct.size());
-
-        // JdbcClient doesn't support IN clause directly with collection, need to use placeholder expansion
-        String placeholders = String.join(",", Collections.nCopies(distinct.size(), "?"));
-        String sql = "SELECT id, name, phone FROM users WHERE id IN (" + placeholders + ")";
-
-        jdbcClient.sql(sql)
-                .params((Object[]) distinct.toArray(new Long[0]))
-                .query(rs -> {
-                    long id = rs.getLong("id");
-                    result.put(id, new UserBriefInfo(id, rs.getString("name"), rs.getString("phone")));
-                });
-
+        for (UserDO user : userMapper.selectList(query)) {
+            result.put(user.getId(), new UserBriefInfo(user.getId(), user.getName(), user.getPhone()));
+        }
         return result;
     }
 }

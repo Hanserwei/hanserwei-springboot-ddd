@@ -30,6 +30,7 @@ public final class OrderConverter {
                 .userId(order.getUserId())
                 .totalAmount(order.getTotalAmount())
                 .status(order.getStatus().name())
+                .version(order.getVersion())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();
@@ -45,6 +46,7 @@ public final class OrderConverter {
                 orderDO.getUserId(),
                 orderDO.getTotalAmount(),
                 Order.OrderStatus.valueOf(orderDO.getStatus()),
+                orderDO.getVersion(),
                 orderDO.getCreatedAt(),
                 orderDO.getUpdatedAt()
         );

@@ -3,6 +3,7 @@ package com.hanserwei.springboot4ddd.infrastructure.repository.order;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -44,6 +45,9 @@ public class OrderDO {
     private BigDecimal totalAmount;
 
     private String status;
+
+    @Version
+    private Integer version;
 
     private LocalDateTime createdAt;
 

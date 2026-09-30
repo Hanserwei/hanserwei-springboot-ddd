@@ -1,14 +1,20 @@
 package com.hanserwei.springboot4ddd.infrastructure.repository.order;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hanserwei.springboot4ddd.domain.exception.EntityNotFoundException;
 import com.hanserwei.springboot4ddd.domain.model.order.Order;
 import com.hanserwei.springboot4ddd.domain.page.PageRequest;
 import com.hanserwei.springboot4ddd.domain.page.PageResult;
 import com.hanserwei.springboot4ddd.domain.repository.order.OrderRepository;
+import com.hanserwei.springboot4ddd.infrastructure.repository.RepositorySorts;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -26,6 +32,11 @@ import java.util.Optional;
 @Repository
 public class OrderRepositoryImpl implements OrderRepository {
 
+    private static final Map<String, String> SORTABLE_COLUMNS = Map.of(
+            "id", "id", "orderNo", "order_no", "userId", "user_id",
+            "totalAmount", "total_amount", "status", "status",
+            "createdAt", "created_at", "updatedAt", "updated_at");
+
     private final OrderMybatisPlusMapper orderMapper;
 
     public OrderRepositoryImpl(OrderMybatisPlusMapper orderMapper) {
@@ -40,7 +51,14 @@ public class OrderRepositoryImpl implements OrderRepository {
             orderMapper.insert(orderDO);
             order.markCreated(orderDO.getId());
         } else {
-            orderMapper.updateById(orderDO);
+            int updated = orderMapper.updateById(orderDO);
+            if (updated == 0) {
+                if (orderMapper.selectById(orderDO.getId()) == null) {
+                    throw new EntityNotFoundException("订单", "id", orderDO.getId());
+                }
+                throw new OptimisticLockingFailureException("订单已被其他请求修改，请重新获取后操作");
+            }
+            order.markUpdated(orderDO.getVersion());
         }
         return order;
     }
@@ -53,42 +71,57 @@ public class OrderRepositoryImpl implements OrderRepository {
 
     @Override
     public Optional<Order> findByOrderNo(String orderNo) {
-        return orderMapper.findByOrderNo(orderNo)
+        return Optional.ofNullable(orderMapper.selectOne(
+                        new LambdaQueryWrapper<OrderDO>().eq(OrderDO::getOrderNo, orderNo)))
                 .map(OrderConverter::toModel);
     }
 
     @Override
     public List<Order> findByUserId(Long userId) {
-        return OrderConverter.toModelList(orderMapper.findByUserId(userId));
+        return OrderConverter.toModelList(orderMapper.selectList(
+                new LambdaQueryWrapper<OrderDO>().eq(OrderDO::getUserId, userId)
+                        .orderByDesc(OrderDO::getCreatedAt, OrderDO::getId)));
     }
 
     @Override
     public PageResult<Order> findByUserId(Long userId, PageRequest pageRequest) {
-        Page<OrderDO> page = orderMapper.findPageByUserId(userId, toMpPage(pageRequest));
+        QueryWrapper<OrderDO> wrapper = sortedQuery(pageRequest).eq("user_id", userId);
+        Page<OrderDO> page = orderMapper.selectPage(toMpPage(pageRequest), wrapper);
         return toPageResult(page, pageRequest);
     }
 
     @Override
     public List<Order> findAllOrders() {
-        return OrderConverter.toModelList(orderMapper.selectList(null));
+        return OrderConverter.toModelList(orderMapper.selectList(
+                new QueryWrapper<OrderDO>().orderByDesc("created_at", "id")));
     }
 
     @Override
     public PageResult<Order> findAllOrders(PageRequest pageRequest) {
-        Page<OrderDO> page = orderMapper.selectPage(toMpPage(pageRequest), null);
+        Page<OrderDO> page = orderMapper.selectPage(toMpPage(pageRequest), sortedQuery(pageRequest));
         return toPageResult(page, pageRequest);
     }
 
     @Override
     public void deleteById(Long id) {
-        orderMapper.deleteById(id);
+        if (orderMapper.deleteById(id) == 0) {
+            throw new EntityNotFoundException("订单", "id", id);
+        }
     }
 
     @Override
     public List<Order> findExpiredPendingOrders(LocalDateTime createdBefore) {
-        return OrderConverter.toModelList(
-                orderMapper.findByStatusAndCreatedAtBefore(
-                        Order.OrderStatus.PENDING.name(), createdBefore));
+        return OrderConverter.toModelList(orderMapper.selectList(
+                new LambdaQueryWrapper<OrderDO>()
+                        .eq(OrderDO::getStatus, Order.OrderStatus.PENDING.name())
+                        .lt(OrderDO::getCreatedAt, createdBefore)
+                        .orderByAsc(OrderDO::getCreatedAt, OrderDO::getId)));
+    }
+
+    private static QueryWrapper<OrderDO> sortedQuery(PageRequest pageRequest) {
+        QueryWrapper<OrderDO> wrapper = new QueryWrapper<>();
+        RepositorySorts.apply(wrapper, pageRequest.getSorts(), SORTABLE_COLUMNS, "created_at");
+        return wrapper;
     }
 
     /**

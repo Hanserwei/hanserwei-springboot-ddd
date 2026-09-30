@@ -8,10 +8,13 @@ import com.hanserwei.springboot4ddd.domain.event.order.OrderPaidEvent;
 import lombok.Getter;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 订单领域模型（聚合根）
@@ -34,6 +37,7 @@ public class Order {
     private final Long userId;
     private final BigDecimal totalAmount;
     private OrderStatus status;
+    private int version;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -61,6 +65,7 @@ public class Order {
           Long userId,
           BigDecimal totalAmount,
           OrderStatus status,
+          int version,
           LocalDateTime createdAt,
           LocalDateTime updatedAt) {
         this.id = id;
@@ -68,21 +73,30 @@ public class Order {
         this.userId = userId;
         this.totalAmount = totalAmount;
         this.status = status;
+        this.version = version;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
     public static Order create(Long userId, BigDecimal totalAmount) {
-        LocalDateTime now = LocalDateTime.now();
-        return new Order(
-                null,
-                generateOrderNo(),
-                userId,
-                totalAmount,
-                OrderStatus.PENDING,
-                now,
-                now
-        );
+        if (userId == null || userId <= 0) {
+            throw new IllegalArgumentException("用户 ID 必须为正数");
+        }
+        if (totalAmount == null || totalAmount.signum() <= 0) {
+            throw new IllegalArgumentException("订单金额必须大于 0");
+        }
+        BigDecimal amount;
+        try {
+            amount = totalAmount.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException ex) {
+            throw new IllegalArgumentException("订单金额最多支持两位小数", ex);
+        }
+        if (amount.precision() > 19) {
+            throw new IllegalArgumentException("订单金额整数部分最多支持 17 位");
+        }
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        return new Order(null, generateOrderNo(), userId, amount,
+                OrderStatus.PENDING, 0, now, now);
     }
 
     /**
@@ -93,9 +107,10 @@ public class Order {
                                 Long userId,
                                 BigDecimal totalAmount,
                                 OrderStatus status,
+                                int version,
                                 LocalDateTime createdAt,
                                 LocalDateTime updatedAt) {
-        return new Order(id, orderNo, userId, totalAmount, status, createdAt, updatedAt);
+        return new Order(id, orderNo, userId, totalAmount, status, version, createdAt, updatedAt);
     }
 
     /**
@@ -115,8 +130,17 @@ public class Order {
         ));
     }
 
+    /** 持久化成功后同步乐观锁版本，支持同一聚合继续执行后续行为。 */
+    public void markUpdated(int nextVersion) {
+        if (nextVersion != this.version + 1) {
+            throw new IllegalStateException("订单版本必须递增一次");
+        }
+        this.version = nextVersion;
+    }
+
     private static String generateOrderNo() {
-        return "ORD" + System.currentTimeMillis();
+        // 毫秒时间戳在同一毫秒内会重复；UUID 支持多线程、多实例创建。
+        return "ORD" + UUID.randomUUID().toString().replace("-", "");
     }
 
     public void cancel() {
@@ -124,7 +148,7 @@ public class Order {
             throw new IllegalStateException("只有待支付订单可以取消");
         }
         this.status = OrderStatus.CANCELLED;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
         recordEvent(new OrderCancelledEvent(
                 this.id,
@@ -140,7 +164,7 @@ public class Order {
             throw new IllegalStateException("只有待支付订单可以支付");
         }
         this.status = OrderStatus.PAID;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
         recordEvent(new OrderPaidEvent(
                 this.id,
@@ -156,7 +180,7 @@ public class Order {
             throw new IllegalStateException("只有已支付订单可以完成");
         }
         this.status = OrderStatus.COMPLETED;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
         recordEvent(new OrderCompletedEvent(
                 this.id,

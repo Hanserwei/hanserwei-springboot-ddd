@@ -187,11 +187,10 @@ public class OrderService {
     public void deleteOrder(Long id) {
         log.info("删除订单，id={}", id);
 
-        if (!orderRepository.findById(id).isPresent()) {
-            throw new EntityNotFoundException("订单", "id", id);
-        }
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("订单", "id", id));
         orderRepository.deleteById(id);
-        cacheService.delete(CachePolicy.ORDER_KEY_PREFIX + "id:" + id);
+        evictOrderCaches(order);
         log.info("订单删除成功，id={}", id);
     }
 

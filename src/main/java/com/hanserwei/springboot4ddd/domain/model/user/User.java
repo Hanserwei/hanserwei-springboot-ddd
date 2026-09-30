@@ -5,6 +5,7 @@ import com.hanserwei.springboot4ddd.domain.service.user.UserUniquenessChecker;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 /**
@@ -65,7 +66,7 @@ public class User {
         if (checker.existsByEmail(email)) {
             throw new UniquenessViolationException("邮箱已存在: " + email);
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
         return new User(null, name, email, phone, wechat, address, now, now);
     }
 
@@ -131,7 +132,7 @@ public class User {
     }
 
     private void touch() {
-        this.updatedTime = LocalDateTime.now();
+        this.updatedTime = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     private static void requireNonBlank(String value, String fieldName) {

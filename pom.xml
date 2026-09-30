@@ -7,12 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <!--
-            Spring Boot 版本说明（更新于 2026-09，均经 Maven Central 核实）：
-            - 4.1.1：当前 4.1.x 最新稳定补丁版（本项目采用）
-            - 4.2.0：尚未发布正式版（仅有 M1/M2 里程碑，勿用于生产）
-            - 4.0.8：4.0.x 维护分支最新稳定版（如需保守可降至此版本）
-        -->
+        <!-- Spring Boot 4：框架和托管依赖的版本基准。 -->
         <version>4.1.1</version>
         <relativePath/>
     </parent>
@@ -43,7 +38,7 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web MVC（Boot 4 中 web 栈的正式 starter，取代旧 starter-web） -->
+        <!-- Spring Boot Web MVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
@@ -51,8 +46,7 @@
 
         <!--
             Spring Data Commons：仅用于 interfaces 层的 Pageable/Sort 分页参数解析。
-            版本由 Spring Boot BOM 管理；仓储层已统一为 MyBatis-Plus，
-            故不再引入 spring-boot-starter-data-jdbc。
+            版本由 Spring Boot BOM 管理。
         -->
         <dependency>
             <groupId>org.springframework.data</groupId>
@@ -60,9 +54,8 @@
         </dependency>
 
         <!--
-            MyBatis-Plus：唯一持久化实现（3.5.17 为当前最新稳定版）。
-            官方已提供 Spring Boot 4 专用 starter，替代此前的 boot3-starter；
-            自动配置已在 application.yaml 中排除，装配逻辑见 MybatisPlusConfig。
+            MyBatis-Plus Boot 4 starter：仓储和跨上下文简介查询的持久化实现。
+            两套固定工厂由 MybatisPlusConfig 装配，application.yaml 排除默认自动配置。
         -->
         <dependency>
             <groupId>com.baomidou</groupId>
@@ -72,7 +65,7 @@
 
         <!--
             MyBatis-Plus JSqlParser 支持包（版本需与 starter 保持一致）。
-            自 3.5.9 起分页拦截器 PaginationInnerInterceptor 从 extension 拆到此包。
+            提供分页拦截器 PaginationInnerInterceptor 所需的 SQL 解析支持。
         -->
         <dependency>
             <groupId>com.baomidou</groupId>
@@ -80,7 +73,7 @@
             <version>3.5.17</version>
         </dependency>
 
-        <!-- Spring Boot JDBC Starter（JdbcClient / DataSourceTransactionManager） -->
+        <!-- Spring Boot JDBC Starter：连接池和 DataSourceTransactionManager -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>

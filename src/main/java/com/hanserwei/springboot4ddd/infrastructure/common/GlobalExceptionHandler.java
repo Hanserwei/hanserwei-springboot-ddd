@@ -5,6 +5,7 @@ import com.hanserwei.springboot4ddd.domain.exception.EntityNotFoundException;
 import com.hanserwei.springboot4ddd.domain.exception.UniquenessViolationException;
 import com.hanserwei.springboot4ddd.infrastructure.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -63,6 +64,13 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiResponse<Void> handleUniquenessViolationException(UniquenessViolationException ex) {
         log.warn("Uniqueness violation: {}", ex.getMessage());
+        return ApiResponse.error(HttpStatus.CONFLICT.value(), ex.getMessage());
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> handleOptimisticLockingFailure(OptimisticLockingFailureException ex) {
+        log.warn("Concurrent update: {}", ex.getMessage());
         return ApiResponse.error(HttpStatus.CONFLICT.value(), ex.getMessage());
     }
 

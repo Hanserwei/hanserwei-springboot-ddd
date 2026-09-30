@@ -108,16 +108,17 @@ public class UserService {
         log.info("User updated: id={}, name={}", updatedUser.getId(), updatedUser.getName());
 
         cacheService.delete(CachePolicy.USER_KEY_PREFIX + updatedUser.getId());
+        cacheService.delete(CachePolicy.USER_KEY_PREFIX + "name:" + updatedUser.getName());
         return toDTO(updatedUser);
     }
 
     public void deleteUser(Long id) {
-        if (!userRepository.findById(id).isPresent()) {
-            throw new EntityNotFoundException("用户", "id", id);
-        }
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("用户", "id", id));
         userRepository.deleteById(id);
         log.info("User deleted: id={}", id);
         cacheService.delete(CachePolicy.USER_KEY_PREFIX + id);
+        cacheService.delete(CachePolicy.USER_KEY_PREFIX + "name:" + user.getName());
     }
 
     private UserDTO toDTO(User user) {

@@ -5,8 +5,7 @@ import java.time.Duration;
 /**
  * 缓存策略常量（application 层）
  *
- * <p>"哪些数据缓存多久 / 用什么前缀" 是 application 关切，
- * 与具体中间件无关，因此从 infrastructure/config 搬到 application/port。
+ * <p>定义应用用例使用的缓存键前缀和 TTL，与具体中间件实现无关。
  *
  * @author Hanserwei
  * @since 1.0.0

@@ -10,6 +10,7 @@ import com.hanserwei.springboot4ddd.interfaces.annotation.RequireSign;
 import com.hanserwei.springboot4ddd.interfaces.annotation.WithParams;
 import com.hanserwei.springboot4ddd.interfaces.page.PageableConverter;
 import com.hanserwei.springboot4ddd.interfaces.vo.order.CreateOrderRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -35,7 +36,7 @@ public class OrderController {
      * 创建订单（需要签名验证，带参数）
      */
     @PostMapping("/create")
-    public ApiResponse<OrderDTO> createOrder(@RequestBody CreateOrderRequest request) {
+    public ApiResponse<OrderDTO> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         CreateOrderCommand command = CreateOrderCommand.builder()
                 .userId(request.getUserId())
                 .totalAmount(request.getTotalAmount())

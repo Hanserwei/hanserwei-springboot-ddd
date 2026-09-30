@@ -8,7 +8,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,8 +44,9 @@ public class DataSourceConfig {
 
     @Bean(name = "userDataSource")
     public DataSource userDataSource(@Qualifier("userHikariConfig") HikariConfig hikariConfig) {
+        HikariDataSource dataSource = null;
         try {
-            HikariDataSource dataSource = new HikariDataSource(hikariConfig);
+            dataSource = new HikariDataSource(hikariConfig);
 
             // 测试连接以验证数据库可用性
             testConnection(dataSource, "MySQL(User)");
@@ -54,6 +54,9 @@ public class DataSourceConfig {
             return dataSource;
 
         } catch (Exception e) {
+            if (dataSource != null) {
+                dataSource.close();
+            }
             if (userFallbackEnabled) {
                 log.error("MySQL用户数据源初始化失败，系统将继续运行但相关功能可能不可用: {}", e.getMessage());
                 log.warn("建议检查数据库连接配置和服务状态");
@@ -80,8 +83,9 @@ public class DataSourceConfig {
     @Bean(name = "orderDataSource")
     @Primary
     public DataSource orderDataSource(@Qualifier("orderHikariConfig") HikariConfig hikariConfig) {
+        HikariDataSource dataSource = null;
         try {
-            HikariDataSource dataSource = new HikariDataSource(hikariConfig);
+            dataSource = new HikariDataSource(hikariConfig);
 
             // 测试连接以验证数据库可用性
             testConnection(dataSource, "PostgreSQL(Order)");
@@ -89,6 +93,9 @@ public class DataSourceConfig {
             return dataSource;
 
         } catch (Exception e) {
+            if (dataSource != null) {
+                dataSource.close();
+            }
             if (orderFallbackEnabled) {
                 log.error("PostgreSQL订单数据源初始化失败，系统将继续运行但相关功能可能不可用: {}", e.getMessage());
                 log.warn("建议检查数据库连接配置和服务状态");
@@ -100,14 +107,6 @@ public class DataSourceConfig {
                 throw new RuntimeException("PostgreSQL订单数据源初始化失败", e);
             }
         }
-    }
-
-    /**
-     * MySQL JdbcClient - 用户数据
-     */
-    @Bean(name = "userJdbcClient")
-    public JdbcClient userJdbcClient(@Qualifier("userDataSource") DataSource dataSource) {
-        return JdbcClient.create(dataSource);
     }
 
     /**
